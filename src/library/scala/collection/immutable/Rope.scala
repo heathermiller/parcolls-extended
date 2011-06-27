@@ -265,7 +265,7 @@ final class RopeBuilder[T]() extends Builder[T, Rope[T]] {
   }
   
   def result: Rope[T] = {    
-    Rope.applySeq(chain.map(c => c.toArray).toList)
+    Rope.buildFromSeq(chain.map(c => c.toArray).toList)
   }
   
   def size = chain.foldLeft(0)(_ + _.length)
@@ -298,10 +298,14 @@ object Rope extends SeqFactory[Rope] {
     new Leaf(array map (el => el.asInstanceOf[AnyRef]), shortLeaf)
   }
 
-  def applySeq[T](arrays: Seq[Array[AnyRef]]): Rope[T] =
+
+/*
+ * applySeq used in Combiner and Builder
+*/
+  def buildFromSeq[T](arrays: Seq[Array[AnyRef]]): Rope[T] =
     arrays.length match {
       case 0 => Rope()
-      //case 1 => Rope(arrays(0) map (el => el.asInstanceOf[T]))
+      case 1 => new Leaf(arrays(0))
       case 2 => new InnerNode(new Leaf(arrays(0)), new Leaf(arrays(1)))
       case other => 
                 var temp = new InnerNode[T](new Leaf(arrays(0)), new Leaf(arrays(1)))

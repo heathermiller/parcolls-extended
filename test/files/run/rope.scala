@@ -7,8 +7,8 @@ import scala.collection.immutable.Rope
 object Test {
   def main(args: Array[String]) {
 
-    val rope = Rope("the quick red fox jumps over the lazy brown dog".toArray)
-    
+    val rope = Rope("the quick red fox jumps over the lazy brown dog".toArray,10)
+
     // test length
     assert(rope.length == 47, "rope.length FAIL")
 

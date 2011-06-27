@@ -79,7 +79,7 @@ private class ParRopeCombiner[T]() extends parallel.Combiner[T, ParRope[T]] {
   }
   
   def result: ParRope[T] = {    
-    new ParRope(Rope.applySeq(chain.map(c => c.toArray).toList))
+    new ParRope(Rope.buildFromSeq(chain.map(c => c.toArray).toList))
   }
   
   def size = chain.foldLeft(0)(_ + _.length)

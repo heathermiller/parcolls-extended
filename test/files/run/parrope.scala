@@ -9,7 +9,7 @@ import scala.collection.immutable.Rope
 object Test {
   def main(args: Array[String]) {
 
-    val rope = Rope("the quick red".toArray) // length == 13
+    val rope = Rope("the quick red".toArray,10) // length == 13
     val parRope = new ParRope(rope)
 
     // test splitters
@@ -18,8 +18,10 @@ object Test {
 
     val firstSplitter = splitters(0)
     var res: String = ""
-    while (firstSplitter.hasNext)
+    var i = 0
+    while (firstSplitter.hasNext) {
       res = res + firstSplitter.next
+    }
     assert(res == "the qu", "split FAIL")
 
     // test combiners

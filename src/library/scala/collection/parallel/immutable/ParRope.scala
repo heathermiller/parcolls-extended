@@ -18,24 +18,13 @@ import scala.collection.parallel.SeqSplitter
 import scala.collection.generic.CanCombineFrom // used to return a combiner
 
 class ParRope[T](rope: Rope[T]) extends ParSeq[T]
-  with parallel.ParSeqLike[T, ParRope[T], Vector[T]] {
+  with parallel.ParSeqLike[T, ParRope[T], Rope[T]] {
   
   def apply(i: Int): T = rope(i)
 
   def length: Int = rope.length
 
-  /* This should return a sequential Rope, once Rope is integrated into
-   * the sequential collections framework.
-   * 
-   * As a first step we can return a Vector.
-   */
-  def seq = {
-    val vb = new collection.immutable.VectorBuilder[T]()
-    val iter = this.parallelIterator
-    while (iter.hasNext)
-      vb += iter.next
-    vb.result
-  }
+  override def seq: Rope[T] = rope
 
   override protected[this] def newCombiner = ParRope.newCombiner[T]
   

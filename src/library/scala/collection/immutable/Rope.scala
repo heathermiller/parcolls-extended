@@ -9,14 +9,23 @@
 package scala.collection
 package immutable
 
-trait Rope[T] extends Iterable[T] {
+import generic._
+import mutable.Builder
+import mutable.ArrayBuffer
+import parallel.immutable.ParRope
+
+trait Rope[T] extends Seq[T]
+              with GenericTraversableTemplate[T, Rope]
+              with SeqLike[T, Rope[T]] {
   
   def apply(i: Int): T
   def concat(that: Rope[T]): Rope[T]
+  override def companion: GenericCompanion[Rope] = Rope
   def delete(i: Int): Rope[T] 
   def insert(i: Int, r: Rope[T]): Rope[T]
 
   def length: Int
+  override def par = new ParRope(this)
   def rebalance: Rope[T]
   def split(i: Int): (Rope[T], Rope[T])
 
@@ -245,7 +254,42 @@ class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T]) ex
 }// end InnerNode
 
 
-object Rope {
+final class RopeBuilder[T]() extends Builder[T, Rope[T]] {
+  
+  val chain = mutable.ArrayBuffer(ArrayBuffer[AnyRef]())
+  var last = chain(0)
+  
+  def +=(elem: T) = {
+    last += elem.asInstanceOf[AnyRef]
+    this
+  }
+  
+  def result: Rope[T] = {    
+    Rope.applySeq(chain.map(c => c.toArray).toList)
+  }
+  
+  def size = chain.foldLeft(0)(_ + _.length)
+  
+  def clear = {
+    chain.clear
+    chain += new ArrayBuffer[AnyRef]()
+    last = chain(0)
+  }
+
+} // end RopeBuilder
+
+
+object Rope extends SeqFactory[Rope] {
+
+  private[immutable] val BF = new GenericCanBuildFrom[Nothing] {
+    override def apply() = newBuilder[Nothing]
+  }
+  
+  @inline implicit def canBuildFrom[T]: CanBuildFrom[Coll, T, Rope[T]] =
+    BF.asInstanceOf[CanBuildFrom[Coll, T, Rope[T]]]
+  def newBuilder[T]: Builder[T, Rope[T]] = new RopeBuilder[T]
+  @inline override def empty[T]: Rope[T] = Rope[T]()
+
 
   def apply[T](): Rope[T] = new Leaf(Array.ofDim[AnyRef](0))
 
@@ -268,5 +312,4 @@ object Rope {
     }
 
 }// end object Rope
-
 

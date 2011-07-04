@@ -19,14 +19,75 @@ trait Rope[T] extends Seq[T]
               with SeqLike[T, Rope[T]] {
   
   def apply(i: Int): T
+
+  protected def collectLeaves: ArrayBuffer[Rope[T]] = {
+    var offset = 0
+    val buffer = new ArrayBuffer[Rope[T]]
+
+    while (offset < this.length)
+    {
+      val leafToInsert = findLeafAt(offset)
+      buffer += leafToInsert
+      offset = offset + leafToInsert.length
+    }
+    buffer
+  }
+
+  protected[immutable] def findLeafAt(i: Int): Leaf[T]
+
   def concat(that: Rope[T]): Rope[T]
   override def companion: GenericCompanion[Rope] = Rope
   def delete(i: Int): Rope[T] 
+
+  private def fibonacci(n: Int): Int = if (n == 0 || n == 1) 1 else fibonacci(n-1) + fibonacci(n-2)
+
   def insert(i: Int, r: Rope[T]): Rope[T]
+
+  def isBalanced: Boolean = {
+    val n = this.depth
+    length >= fibonacci(n+2)
+  }     
 
   def length: Int
   override def par = new ParRope(this)
-  def rebalance: Rope[T]
+
+  def rebalance: Rope[T] = {
+    val leaves = this.collectLeaves
+
+    leaves.length match {
+      case 0 => Rope()
+      case 1 => leaves(0)
+      case 2 => new InnerNode(leaves(0), leaves(1))
+      case other => 
+        // if length of leaves is odd...
+        if (leaves.length % 2 == 1) {
+          var idx = 0
+          while (idx < leaves.length) {
+            if (idx + 1 < leaves.length) {
+              leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
+              leaves.remove(idx+1)
+            }              
+            idx += 1           
+          }
+          leaves(leaves.length-2) = new InnerNode(leaves(leaves.length-2),leaves(leaves.length-1))
+          leaves.remove(leaves.length-1)
+        }
+      
+        // at this point, the length of leaves must be even.
+        while (leaves.length > 1) {
+          var idx = 0
+          while (idx < leaves.length) {
+            leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
+            leaves.remove(idx+1)
+            idx += 1 
+          }                
+        }
+
+        // return rope stored in leaves(0)  
+        leaves(0)
+    }
+  }
+
   def split(i: Int): (Rope[T], Rope[T])
 
   def subseq(from: Int, to: Int): Rope[T]
@@ -36,8 +97,7 @@ trait Rope[T] extends Seq[T]
   protected[immutable] def isShortLeaf: Boolean = false
   def iterator: Iterator[T] = new RopeIterator
 
-  //Helpers
-  protected def depth: Int = 0 //TODO
+  protected[immutable] def depth: Int
 
   class RopeIterator(var i: Int = 0, val until: Int = Rope.this.length) extends Iterator[T] {
     def hasNext = i < until
@@ -52,7 +112,7 @@ trait Rope[T] extends Seq[T]
 
 
 // LEAF
-class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 10) extends Rope[T] {
+case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 10) extends Rope[T] {
 
   def apply(i: Int): T = array(i).asInstanceOf[T]
 
@@ -66,12 +126,15 @@ class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 10)
   }
 
   def delete(i: Int): Rope[T]  = sys.error("not implemented yet.")
+  
+  protected[immutable] def depth: Int = 0
+
+  protected[immutable] def findLeafAt(i: Int): Leaf[T] = this
   def insert(i: Int, r: Rope[T]): Rope[T]  = sys.error("not implemented yet.")
   
   override def isShortLeaf: Boolean = this.length <= shortLeaf
 
   def length: Int = array.length
-  def rebalance: Rope[T]  = sys.error("not implemented yet.")
   def split(i: Int): (Rope[T], Rope[T])  = sys.error("not implemented yet.")
   def subseq(from: Int, to: Int): Rope[T]  = sys.error("not implemented yet.")
 
@@ -79,7 +142,7 @@ class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 10)
 
 
 // INNER NODE
-class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T]) extends Rope[T] {
+case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T]) extends Rope[T] {
 
   val length = left.length + right.length
 
@@ -101,8 +164,19 @@ class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T]) ex
   }
 
   def delete(i: Int): Rope[T]  = sys.error("not implemented yet.")
+
+  protected[immutable] def depth: Int = 1 + math.max(left.depth, right.depth)
+
+  protected[immutable] def findLeafAt(i: Int): Leaf[T] = {
+    if (left.length <= i)
+      right.findLeafAt(i-left.length)
+    else if (left.length > i)
+      left.findLeafAt(i)
+    else 
+      sys.error("Index out of bounds.")
+  }
+
   def insert(i: Int, r: Rope[T]): Rope[T]  = sys.error("not implemented yet.")
-  def rebalance: Rope[T] = sys.error("not implemented yet.")
 
   // split returns two ropes, one containing the first i elements, and another containing the rest
   def split(i: Int): (Rope[T], Rope[T]) = {
@@ -290,6 +364,8 @@ object Rope extends SeqFactory[Rope] {
   def newBuilder[T]: Builder[T, Rope[T]] = new RopeBuilder[T]
   @inline override def empty[T]: Rope[T] = Rope[T]()
 
+
+  def apply(s: String): Rope[Char] = Rope(s.toArray)
 
   def apply[T](): Rope[T] = new Leaf(Array.ofDim[AnyRef](0))
 

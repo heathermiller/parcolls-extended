@@ -40,5 +40,11 @@ object Test {
 //    val (splitrope3, splitrope4) = rope3.split(8)
 //    println("output of split: (" + splitrope3.toList + ", " + splitrope4.toList + ")")
 //    assert( (splitrope3, splitrope4) == (splitrope1.toList, splitrope2.toList), "rope3.split FAIL (in split test #1)")
+
+    val rope4 = sp1 concat sp2 concat sp3 concat sp4
+    assert(rope4.toList == rope4.rebalance.toList, "rope.rebalance FAIL")
+
+    // need isBalanced (& depth) test.
+    
   }
 }

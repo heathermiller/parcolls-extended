@@ -51,49 +51,12 @@ trait Rope[T] extends Seq[T]
   def length: Int
   override def par = new ParRope(this)
 
-  def rebalance: Rope[T] = {
-    val leaves = this.collectLeaves
-
-    leaves.length match {
-      case 0 => Rope()
-      case 1 => leaves(0)
-      case 2 => new InnerNode(leaves(0), leaves(1))
-      case other => 
-        // if length of leaves is odd...
-        if (leaves.length % 2 == 1) {
-          var idx = 0
-          while (idx < leaves.length) {
-            if (idx + 1 < leaves.length) {
-              leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
-              leaves.remove(idx+1)
-            }              
-            idx += 1           
-          }
-          leaves(leaves.length-2) = new InnerNode(leaves(leaves.length-2),leaves(leaves.length-1))
-          leaves.remove(leaves.length-1)
-        }
-      
-        // at this point, the length of leaves must be even.
-        while (leaves.length > 1) {
-          var idx = 0
-          while (idx < leaves.length) {
-            leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
-            leaves.remove(idx+1)
-            idx += 1 
-          }                
-        }
-
-        // return rope stored in leaves(0)  
-        leaves(0)
-    }
-  }
+  def rebalance: Rope[T] = Rope.buildFromLeaves(this.collectLeaves)
 
   def split(i: Int): (Rope[T], Rope[T])
 
   def subseq(from: Int, to: Int): Rope[T]
-
-  /* Used for avoiding 
-   */
+  /* Used for avoiding too many inner nodes. */
   protected[immutable] def isShortLeaf: Boolean = false
   def iterator: Iterator[T] = new RopeIterator
 
@@ -339,7 +302,7 @@ final class RopeBuilder[T]() extends Builder[T, Rope[T]] {
   }
   
   def result: Rope[T] = {    
-    Rope.buildFromSeq(chain.map(c => c.toArray).toList)
+    Rope.buildFromBuffer(chain.map(c => c.toArray))
   }
   
   def size = chain.foldLeft(0)(_ + _.length)
@@ -364,32 +327,70 @@ object Rope extends SeqFactory[Rope] {
   def newBuilder[T]: Builder[T, Rope[T]] = new RopeBuilder[T]
   @inline override def empty[T]: Rope[T] = Rope[T]()
 
-
   def apply(s: String): Rope[Char] = Rope(s.toArray)
 
   def apply[T](): Rope[T] = new Leaf(Array.ofDim[AnyRef](0))
 
   def apply[T](array: Array[T], shortLeaf: Int = 10): Rope[T] = {
-    //val anyRefArray = Array.ofDim[AnyRef](array.length)
-    new Leaf(array map (el => el.asInstanceOf[AnyRef]), shortLeaf)
+    //new Leaf(array map (el => el.asInstanceOf[AnyRef]), shortLeaf)
+    val buf = new ArrayBuffer[Array[AnyRef]]
+    var i = 0
+    while (i < array.length) {
+      // length of the subarray
+      val len =
+        if (i + shortLeaf > array.length) array.length - i
+        else shortLeaf
+
+      val subarray = Array.ofDim[AnyRef](len)
+      Array.copy(array, i, subarray, 0, len)
+
+      buf += subarray
+      i += len
+    }
+    buildFromBuffer(buf)
   }
 
+  protected[immutable] def buildFromLeaves[T](leaves: ArrayBuffer[Rope[T]]): Rope[T] = 
+    leaves.length match {
+      case 0 => Rope()
+      case 1 => leaves(0)
+      case 2 => new InnerNode(leaves(0), leaves(1))
+      case other => 
+        // if length of leaves is odd...
+        if (leaves.length % 2 == 1) {
+          var idx = 0
+          while (idx < leaves.length) {
+            if (idx + 1 < leaves.length) {
+              leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
+              leaves.remove(idx+1)
+            }              
+            idx += 1           
+          }
+          leaves(leaves.length-2) = new InnerNode(leaves(leaves.length-2),leaves(leaves.length-1))
+          leaves.remove(leaves.length-1)
+        }
+      
+        // at this point, the length of leaves must be even.
+        while (leaves.length > 1) {
+          var idx = 0
+          while (idx < leaves.length) {
+            leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
+            leaves.remove(idx+1)
+            idx += 1 
+          }                
+        }
+
+        // return rope stored in leaves(0)  
+        leaves(0)
+    }
 
 /*
  * applySeq used in Combiner and Builder
 */
-  def buildFromSeq[T](arrays: Seq[Array[AnyRef]]): Rope[T] =
-    arrays.length match {
-      case 0 => Rope()
-      case 1 => new Leaf(arrays(0))
-      case 2 => new InnerNode(new Leaf(arrays(0)), new Leaf(arrays(1)))
-      case other => 
-                var temp = new InnerNode[T](new Leaf(arrays(0)), new Leaf(arrays(1)))
-
-                for (array <- arrays.drop(2))
-                  temp = new InnerNode(temp, new Leaf(array))
-                temp
-    }
+  def buildFromBuffer[T](arrays: ArrayBuffer[Array[AnyRef]]): Rope[T] = {
+    val leaves: ArrayBuffer[Rope[T]] = arrays map (a => Leaf[T](a))
+    buildFromLeaves(leaves)
+  }
 
 }// end object Rope
 

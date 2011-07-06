@@ -7,7 +7,7 @@ import scala.collection.immutable.Rope
 object Test {
   def main(args: Array[String]) {
 
-    val rope = Rope("the quick red fox jumps over the lazy brown dog".toArray,10)
+    val rope = Rope("the quick red fox jumps over the lazy brown dog")
 
     // test length
     assert(rope.length == 47, "rope.length FAIL")
@@ -26,8 +26,8 @@ object Test {
 
     // split test # 1
     val rope2 = Rope("there is a cat.".toArray, 2)
-    val splitrope1 = Rope("there is".toArray)
-    val splitrope2 = Rope(" a cat.".toArray)
+    val splitrope1 = Rope("there is")
+    val splitrope2 = Rope(" a cat.")
 
     val sp1 = Rope("the".toArray, 2)
     val sp2 = Rope("re is".toArray, 2)
@@ -45,6 +45,12 @@ object Test {
     assert(rope4.toList == rope4.rebalance.toList, "rope.rebalance FAIL")
 
     // need isBalanced (& depth) test.
-    
+        
+    val (ropeSplit1, ropeSplit2) = rope.split(3)
+    assert(ropeSplit1.toList == Rope("the").toList && ropeSplit2.toList == Rope(" quick red fox jumps over the lazy brown dog").toList, "rope.split FAIL")
+
+    val filteredRope = rope.filterNot((c: Char) => c == ' ')
+    assert(filteredRope.toList == Rope("thequickredfoxjumpsoverthelazybrowndog").toList, "rope.filteredNot FAIL")
+
   }
 }

@@ -20,17 +20,58 @@ trait Rope[T] extends Seq[T]
   
   def apply(i: Int): T
 
-  protected def collectLeaves: ArrayBuffer[Rope[T]] = {
+  // used by rebalance(). We should implement a more efficient way to traverse the Rope.
+  private def collectLeaves: ArrayBuffer[Rope[T]] = {
     var offset = 0
     val buffer = new ArrayBuffer[Rope[T]]
 
     while (offset < this.length)
     {
-      val leafToInsert = findLeafAt(offset)
+      val foundLeaf = findLeafAt(offset)
+      
+      // to keep it immutable, we have to copy.
+      val copiedArray = Array.ofDim[AnyRef](foundLeaf.length)
+      Array.copy(foundLeaf.array, 0, copiedArray, 0, foundLeaf.length)
+      val leafToInsert = Leaf[T](copiedArray)
+      
       buffer += leafToInsert
       offset = offset + leafToInsert.length
     }
     buffer
+  }
+
+  // used by split(). We should implement a more efficient way to traverse the Rope.
+  private def collectLeavesForSplit(i: Int): (ArrayBuffer[Rope[T]], ArrayBuffer[Rope[T]]) = {
+    var offset = 0
+    val first = new ArrayBuffer[Rope[T]]
+    val second = new ArrayBuffer[Rope[T]]
+    var buffer = first
+
+    while (offset < this.length)
+    {
+      val foundLeaf = findLeafAt(offset)
+      
+      // to keep it immutable, we have to copy.
+      val copiedArray = Array.ofDim[AnyRef](foundLeaf.length)
+      Array.copy(foundLeaf.array, 0, copiedArray, 0, foundLeaf.length)
+      val leafToInsert = Leaf[T](copiedArray)
+
+      if (i >= offset && i <= offset + leafToInsert.length - 1) { //then i is in the found leaf.
+        val firstArray = Array.ofDim[AnyRef](i-offset)
+        val secondArray = Array.ofDim[AnyRef](foundLeaf.length-(i-offset))
+        Array.copy(foundLeaf.array, 0, firstArray, 0, i-offset)
+        Array.copy(foundLeaf.array, i-offset, secondArray, 0, foundLeaf.length-(i-offset))
+        val firstLeaf = Leaf[T](firstArray)
+        val secondLeaf = Leaf[T](secondArray)
+        buffer += firstLeaf
+        buffer = second
+        buffer += secondLeaf
+      } else { // just put the entire leaf into the buffer
+        buffer += leafToInsert
+      }
+      offset = offset + leafToInsert.length
+    }
+    (first, second)
   }
 
   protected[immutable] def findLeafAt(i: Int): Leaf[T]
@@ -41,7 +82,9 @@ trait Rope[T] extends Seq[T]
 
   private def fibonacci(n: Int): Int = if (n == 0 || n == 1) 1 else fibonacci(n-1) + fibonacci(n-2)
 
-  def insert(i: Int, r: Rope[T]): Rope[T]
+  def insert(i: Int, r: Rope[T]): Rope[T] = {
+
+  }
 
   def isBalanced: Boolean = {
     val n = this.depth
@@ -53,9 +96,13 @@ trait Rope[T] extends Seq[T]
 
   def rebalance: Rope[T] = Rope.buildFromLeaves(this.collectLeaves)
 
-  def split(i: Int): (Rope[T], Rope[T])
+  def splitAt(i: Int): (Rope[T], Rope[T]) = {
+    val (first, second) = this.collectLeavesForSplit(i)
+    (Rope.buildFromLeaves(first), Rope.buildFromLeaves(second))
+  }
 
   def subseq(from: Int, to: Int): Rope[T]
+
   /* Used for avoiding too many inner nodes. */
   protected[immutable] def isShortLeaf: Boolean = false
   def iterator: Iterator[T] = new RopeIterator
@@ -82,7 +129,7 @@ case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int 
   def concat(that: Rope[T]): Rope[T] = {
     if (this.isShortLeaf && that.isShortLeaf) {
       val thatLeaf = that.asInstanceOf[Leaf[T]]
-      new Leaf((this.array ++ thatLeaf.array).toArray, shortLeaf)
+      Leaf((this.array ++ thatLeaf.array).toArray, shortLeaf)
     }
     else
       new InnerNode(this, that)
@@ -98,7 +145,7 @@ case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int 
   override def isShortLeaf: Boolean = this.length <= shortLeaf
 
   def length: Int = array.length
-  def split(i: Int): (Rope[T], Rope[T])  = sys.error("not implemented yet.")
+/*  def split(i: Int): (Rope[T], Rope[T])  = sys.error("not implemented yet.")*/
   def subseq(from: Int, to: Int): Rope[T]  = sys.error("not implemented yet.")
 
 } // end Leaf
@@ -141,6 +188,7 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
 
   def insert(i: Int, r: Rope[T]): Rope[T]  = sys.error("not implemented yet.")
 
+/*
   // split returns two ropes, one containing the first i elements, and another containing the rest
   def split(i: Int): (Rope[T], Rope[T]) = {
     var directionChange: List[Either[InnerNode[T],InnerNode[T]]] = List()
@@ -190,7 +238,7 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
       val newRight = Array.ofDim[AnyRef](currentLeaf.length - index)
       Array.copy(currentLeaf, 0, newLeft, 0, index)
       Array.copy(currentLeaf, index, newRight, 0, currentLeaf.length - index)
-      val newSplitNode = new InnerNode[T](new Leaf[T](newLeft),new Leaf[T](newRight))
+      val newSplitNode = new InnerNode[T](Leaf[T](newLeft), Leaf[T](newRight))
 
       if (current == splitNode.left) {
         directionChange ::= Left(splitNode)
@@ -285,7 +333,7 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
     // end here
 
   } // end def split
-
+*/
   def subseq(from: Int, to: Int): Rope[T]  = sys.error("not implemented yet.")
 
 }// end InnerNode
@@ -329,10 +377,10 @@ object Rope extends SeqFactory[Rope] {
 
   def apply(s: String): Rope[Char] = Rope(s.toArray)
 
-  def apply[T](): Rope[T] = new Leaf(Array.ofDim[AnyRef](0))
+  def apply[T](): Rope[T] = Leaf(Array.ofDim[AnyRef](0))
 
   def apply[T](array: Array[T], shortLeaf: Int = 10): Rope[T] = {
-    //new Leaf(array map (el => el.asInstanceOf[AnyRef]), shortLeaf)
+    //Leaf(array map (el => el.asInstanceOf[AnyRef]), shortLeaf)
     val buf = new ArrayBuffer[Array[AnyRef]]
     var i = 0
     while (i < array.length) {
@@ -350,6 +398,7 @@ object Rope extends SeqFactory[Rope] {
     buildFromBuffer(buf)
   }
 
+  // Builds a new *balanced* rope from an array buffer of leaves.
   protected[immutable] def buildFromLeaves[T](leaves: ArrayBuffer[Rope[T]]): Rope[T] = 
     leaves.length match {
       case 0 => Rope()

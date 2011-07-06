@@ -46,11 +46,10 @@ object Test {
 
     // need isBalanced (& depth) test.
         
-    val (ropeSplit1, ropeSplit2) = rope.split(3)
+    val (ropeSplit1, ropeSplit2) = rope.splitAt(3)
     assert(ropeSplit1.toList == Rope("the").toList && ropeSplit2.toList == Rope(" quick red fox jumps over the lazy brown dog").toList, "rope.split FAIL")
 
     val filteredRope = rope.filterNot((c: Char) => c == ' ')
     assert(filteredRope.toList == Rope("thequickredfoxjumpsoverthelazybrowndog").toList, "rope.filteredNot FAIL")
-
   }
 }

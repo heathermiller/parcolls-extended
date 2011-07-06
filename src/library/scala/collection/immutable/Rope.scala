@@ -17,7 +17,35 @@ import parallel.immutable.ParRope
 trait Rope[T] extends Seq[T]
               with GenericTraversableTemplate[T, Rope]
               with SeqLike[T, Rope[T]] {
-  
+  // prepend
+  override def +:[B >: T, That](elem: B)(implicit bf: CanBuildFrom[Rope[T], B, That]): That = {
+    val leafToAdd = Leaf[T](Array(elem.asInstanceOf[AnyRef]))
+    InnerNode(leafToAdd, this).asInstanceOf[That]
+  }  
+
+  // append
+  override def :+[B >: T, That](elem: B)(implicit bf: CanBuildFrom[Rope[T], B, That]): That = {
+    val leafToAdd = Leaf[T](Array(elem.asInstanceOf[AnyRef]))
+    InnerNode(this, leafToAdd).asInstanceOf[That]
+  }
+
+  def prependAndRebalance(elem: T): Rope[T] = {
+    val prependedRope = this.+:(elem)
+    if (!prependedRope.isBalanced) {
+      prependedRope.rebalance
+    } else
+      prependedRope
+  }
+
+  def appendAndRebalance(elem: T): Rope[T] = {
+    val appendedRope = this :+ elem
+    if (!appendedRope.isBalanced) {
+      appendedRope.rebalance
+    } else
+      appendedRope
+  }
+
+
   def apply(i: Int): T
 
   // used by rebalance(). We should implement a more efficient way to traverse the Rope.
@@ -82,9 +110,7 @@ trait Rope[T] extends Seq[T]
 
   private def fibonacci(n: Int): Int = if (n == 0 || n == 1) 1 else fibonacci(n-1) + fibonacci(n-2)
 
-  def insert(i: Int, r: Rope[T]): Rope[T] = {
-
-  }
+  def insert(i: Int, r: Rope[T]): Rope[T]
 
   def isBalanced: Boolean = {
     val n = this.depth
@@ -96,7 +122,7 @@ trait Rope[T] extends Seq[T]
 
   def rebalance: Rope[T] = Rope.buildFromLeaves(this.collectLeaves)
 
-  def splitAt(i: Int): (Rope[T], Rope[T]) = {
+  override def splitAt(i: Int): (Rope[T], Rope[T]) = {
     val (first, second) = this.collectLeavesForSplit(i)
     (Rope.buildFromLeaves(first), Rope.buildFromLeaves(second))
   }
@@ -339,13 +365,20 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
 }// end InnerNode
 
 
-final class RopeBuilder[T]() extends Builder[T, Rope[T]] {
+final class RopeBuilder[T](shortLeaf: Int = Rope.defaultShortLeaf) extends Builder[T, Rope[T]] {
   
-  val chain = mutable.ArrayBuffer(ArrayBuffer[AnyRef]())
+  val chain = ArrayBuffer(ArrayBuffer[AnyRef]())
   var last = chain(0)
   
   def +=(elem: T) = {
-    last += elem.asInstanceOf[AnyRef]
+    if (last.length < shortLeaf)
+      last += elem.asInstanceOf[AnyRef]
+    else {
+      val arrayBufferToInsert = ArrayBuffer[AnyRef]()
+      arrayBufferToInsert += elem.asInstanceOf[AnyRef]
+      last = arrayBufferToInsert
+      chain += last
+    }
     this
   }
   
@@ -365,6 +398,8 @@ final class RopeBuilder[T]() extends Builder[T, Rope[T]] {
 
 
 object Rope extends SeqFactory[Rope] {
+  
+  val defaultShortLeaf = 10
 
   private[immutable] val BF = new GenericCanBuildFrom[Nothing] {
     override def apply() = newBuilder[Nothing]
@@ -379,7 +414,7 @@ object Rope extends SeqFactory[Rope] {
 
   def apply[T](): Rope[T] = Leaf(Array.ofDim[AnyRef](0))
 
-  def apply[T](array: Array[T], shortLeaf: Int = 10): Rope[T] = {
+  def apply[T](array: Array[T], shortLeaf: Int = defaultShortLeaf): Rope[T] = {
     //Leaf(array map (el => el.asInstanceOf[AnyRef]), shortLeaf)
     val buf = new ArrayBuffer[Array[AnyRef]]
     var i = 0

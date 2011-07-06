@@ -104,6 +104,16 @@ trait Rope[T] extends Seq[T]
 
   protected[immutable] def findLeafAt(i: Int): Leaf[T]
 
+  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]]): Leaf[T]
+
+  override def foreach[U](f: T => U): Unit = {
+    val leafIterator = new LeafIterator
+    while (leafIterator.hasNext) {
+      val leaf = leafIterator.next
+      leaf.array.foreach((elem: AnyRef) => f(elem.asInstanceOf[T]))
+    }
+  }
+
   def concat(that: Rope[T]): Rope[T]
   override def companion: GenericCompanion[Rope] = Rope
   def delete(i: Int): Rope[T] 
@@ -143,6 +153,25 @@ trait Rope[T] extends Seq[T]
     }
   }
 
+  private class LeafIterator extends Iterator[Leaf[T]] {
+    var stack = mutable.Stack[InnerNode[T]]()
+    var currentNode = Rope.this
+    var visitedLeft = false
+    var i = 0
+
+    def hasNext = i < Rope.this.length
+
+    def next = {
+      while (i >= currentNode.length) //we have to go up
+        currentNode = stack.pop
+
+      // at this point, we know that i < currentNode.length
+      val foundLeaf = currentNode.findWithStack(i, stack)
+      currentNode = stack.pop
+      i += foundLeaf.length
+      foundLeaf
+    }
+  }// end LeafIterator
 }// end Rope
 
 
@@ -166,6 +195,9 @@ case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int 
   protected[immutable] def depth: Int = 0
 
   protected[immutable] def findLeafAt(i: Int): Leaf[T] = this
+
+  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]]): Leaf[T] = this
+
   def insert(i: Int, r: Rope[T]): Rope[T]  = sys.error("not implemented yet.")
   
   override def isShortLeaf: Boolean = this.length <= shortLeaf
@@ -208,6 +240,16 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
       right.findLeafAt(i-left.length)
     else if (left.length > i)
       left.findLeafAt(i)
+    else 
+      sys.error("Index out of bounds.")
+  }
+
+  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]]): Leaf[T] = {
+    stack.push(this)
+    if (left.length <= i)
+      right.findWithStack(i-left.length, stack)
+    else if (left.length > i)
+      left.findWithStack(i, stack)
     else 
       sys.error("Index out of bounds.")
   }
@@ -396,7 +438,6 @@ final class RopeBuilder[T](shortLeaf: Int = Rope.defaultShortLeaf) extends Build
 
 } // end RopeBuilder
 
-
 object Rope extends SeqFactory[Rope] {
   
   val defaultShortLeaf = 10
@@ -457,7 +498,7 @@ object Rope extends SeqFactory[Rope] {
         // at this point, the length of leaves must be even.
         while (leaves.length > 1) {
           var idx = 0
-          while (idx < leaves.length) {
+          while (idx < leaves.length - 1) {
             leaves(idx) = new InnerNode(leaves(idx), leaves(idx+1))
             leaves.remove(idx+1)
             idx += 1 

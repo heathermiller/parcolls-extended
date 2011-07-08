@@ -4,116 +4,125 @@
  *  @author Heather Miller
  */
 import scala.collection.parallel.immutable.ParRope
+import scala.collection.parallel.immutable.ParVector
+import scala.collection.parallel.mutable.ParArray
 import scala.collection.immutable.Rope
 import scala.testing.Benchmark
 
-/* benchmarks to do:
- * goal: compare sequential against array or vector.
- * ops to test:
- * Compare ParRope against Rope, Array, ParArray, Vector.
- * Operations to benchmark:
- * foreach, reduce, map, flatMap, filter, aggregate
+
+/*
+ * FOREACH
  */
-
-object foreachArray extends Benchmark {
-
-  val txt = "A short text..." * 500000
-  val txtArray = txt.toArray
-  var i: Int = 0
-
-  def run = {
-    txtArray.foreach(elem => i += 1 )
-  }
-
-}
-
-object foreachRope extends Benchmark {
-
-  val txt = "A short text..." * 500000
-  val txtRope = Rope(txt)
-  var i: Int = 0
-
-  def run = {
-    txtRope.foreach(elem => i += 1 )
-  }
-}
-
-object foreachVector extends Benchmark {
-
-  val txt = "A short text..." * 500000
-  val txtVector = Vector.tabulate(txt.length)(idx => txt(idx))
-  var i: Int = 0
-
-  def run = {
-    txtVector.foreach(elem => i += 1 )
-  }
-}
-
-object foldLeftArray extends Benchmark {
+object foreachParArray extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtArray = txt.toArray
+  val parArray = txtArray.par
   var i: Int = 0
 
   def run = {
-    i= txtArray.foldLeft(0)((x, y) => x + 1)
+    parArray.foreach(elem => i += 1 )
   }
+
 }
 
-object foldLeftRope extends Benchmark {
+object foreachParRope extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtRope = Rope(txt)
+  val parRope = new ParRope(txtRope)
   var i: Int = 0
 
   def run = {
-    i= txtRope.foldLeft(0)((x, y) => x + 1)
+    parRope.foreach(elem => i += 1 )
   }
 }
 
-object foldLeftVector extends Benchmark {
+object foreachParVector extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtVector = Vector.tabulate(txt.length)(idx => txt(idx))
+  val parVector = new ParVector(txtVector)
   var i: Int = 0
 
   def run = {
-    i = txtVector.foldLeft(0)((x, y) => x + 1)
+    parVector.foreach(elem => i += 1 )
   }
 }
 
+/*
+ * FOLDLEFT
+ */
+object foldLeftParRope extends Benchmark {
 
-object mapArray extends Benchmark {
+  val txt = "A short text..." * 500000
+  val txtRope = Rope(txt)
+  val parRope = new ParRope(txtRope)
+  var i: Int = 0
+
+  def run = {
+    i= parRope.foldLeft(0)((x, y) => x + 1)
+  }
+}
+
+object foldLeftParVector extends Benchmark {
+
+  val txt = "A short text..." * 500000
+  val txtVector = Vector.tabulate(txt.length)(idx => txt(idx))
+  val parVector = new ParVector(txtVector)
+  var i: Int = 0
+
+  def run = {
+    i = parVector.foldLeft(0)((x, y) => x + 1)
+  }
+}
+
+object foldLeftParArray extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtArray = txt.toArray
+  val parArray = txtArray.par
   var i: Int = 0
 
   def run = {
-    txtArray.map(elem => i += 1 )
+    i= parArray.foldLeft(0)((x, y) => x + 1)
+  }
+}
+
+object mapParArray extends Benchmark {
+
+  val txt = "A short text..." * 500000
+  val txtArray = txt.toArray
+  val parArray = txtArray.par
+  var i: Int = 0
+
+  def run = {
+    parArray.map(elem => i += 1 )
   }
 
 }
 
-object mapRope extends Benchmark {
+object mapParRope extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtRope = Rope(txt)
+  val parRope = new ParRope(txtRope)
   var i: Int = 0
 
   def run = {
-    txtRope.map(elem => i += 1 )
+    parRope.map(elem => i += 1 )
   }
 }
 
-object mapVector extends Benchmark {
+object mapParVector extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtVector = Vector.tabulate(txt.length)(idx => txt(idx))
+  val parVector = new ParVector(txtVector)
   var i: Int = 0
 
   def run = {
-    txtVector.map(elem => i += 1 )
+    parVector.map(elem => i += 1 )
   }
 }
 
@@ -140,63 +149,68 @@ def run = {}
 }
 */
 
-object filterArray extends Benchmark {
+object filterParArray extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtArray = txt.toArray
+  val parArray = txtArray.par
 
   def run = {
-    txtArray.filter(_ == 't')
+    parArray.filter(_ == 't')
   }
 }
 
-object filterRope extends Benchmark {
+object filterParRope extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtRope = Rope(txt)
+  val parRope = new ParRope(txtRope)
 
   def run = {
-    txtRope.filter(_ == 't')
+    parRope.filter(_ == 't')
   }
 }
 
-object filterVector extends Benchmark {
+object filterParVector extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtVector = Vector.tabulate(txt.length)(idx => txt(idx))
+  val parVector = new ParVector(txtVector)
 
   def run = {
-    txtVector.filter(_ == 't')
+    parVector.filter(_ == 't')
   }
 }
 
-object aggregateArray extends Benchmark {
+object aggregateParArray extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtArray = txt.toArray
+  val parArray = txtArray.par
 
   def run = {
-    txtArray.aggregate(0)((x, y) => x + 1, _ + _)
+    parArray.aggregate(0)((x, y) => x + 1, _ + _)
   }
 }
 
-object aggregateRope extends Benchmark {
+object aggregateParRope extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtRope = Rope(txt)
+  val parRope = new ParRope(txtRope)
 
   def run = {
-    txtRope.aggregate(0)((x, y) => x + 1, _ + _)
+    parRope.aggregate(0)((x, y) => x + 1, _ + _)
   }
 }
 
-object aggregateVector extends Benchmark {
+object aggregateParVector extends Benchmark {
 
   val txt = "A short text..." * 500000
   val txtVector = Vector.tabulate(txt.length)(idx => txt(idx))
+  val parVector = new ParVector(txtVector)
 
   def run = {
-    txtVector.aggregate(0)((x, y) => x + 1, _ + _)
+    parVector.aggregate(0)((x, y) => x + 1, _ + _)
   }
 }
-

@@ -51,5 +51,6 @@ object Test {
 
     val filteredRope = rope.filterNot((c: Char) => c == ' ')
     assert(filteredRope.toList == Rope("thequickredfoxjumpsoverthelazybrowndog").toList, "rope.filteredNot FAIL")
+
   }
 }

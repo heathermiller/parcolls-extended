@@ -177,7 +177,7 @@ trait Rope[T] extends Seq[T]
 
 
 // LEAF
-case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 10) extends Rope[T] {
+case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 32) extends Rope[T] {
 
   def apply(i: Int): T = array(i).asInstanceOf[T]
 
@@ -440,7 +440,7 @@ final class RopeBuilder[T](shortLeaf: Int = Rope.defaultShortLeaf) extends Build
 
 object Rope extends SeqFactory[Rope] {
   
-  val defaultShortLeaf = 10
+  val defaultShortLeaf = 32 //shortLeaf gets a default value in class Leaf, so update that too
 
   private[immutable] val BF = new GenericCanBuildFrom[Nothing] {
     override def apply() = newBuilder[Nothing]

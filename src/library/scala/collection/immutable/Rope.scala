@@ -13,6 +13,7 @@ import generic._
 import mutable.Builder
 import mutable.ArrayBuffer
 import parallel.immutable.ParRope
+import util.control.Breaks._
 
 trait Rope[T] extends Seq[T]
               with GenericTraversableTemplate[T, Rope]
@@ -48,14 +49,14 @@ trait Rope[T] extends Seq[T]
 
   def apply(i: Int): T
 
-  // used by rebalance(). We should implement a more efficient way to traverse the Rope.
+  // used by rebalance(). Implementation with LeafIterator should be faster than using findLeafAt.
   private def collectLeaves: ArrayBuffer[Rope[T]] = {
-    var offset = 0
     val buffer = new ArrayBuffer[Rope[T]]
+    val iter = new LeafIterator()
 
-    while (offset < this.length)
+    while (iter.hasNext)
     {
-      val foundLeaf = findLeafAt(offset)
+      val foundLeaf = iter.next
       
       // to keep it immutable, we have to copy.
       val copiedArray = Array.ofDim[AnyRef](foundLeaf.length)
@@ -63,21 +64,21 @@ trait Rope[T] extends Seq[T]
       val leafToInsert = Leaf[T](copiedArray)
       
       buffer += leafToInsert
-      offset = offset + leafToInsert.length
     }
     buffer
   }
 
-  // used by split(). We should implement a more efficient way to traverse the Rope.
+  // used by split(). Implementation with LeafIterator should be faster than using findLeafAt.
   private def collectLeavesForSplit(i: Int): (ArrayBuffer[Rope[T]], ArrayBuffer[Rope[T]]) = {
     var offset = 0
     val first = new ArrayBuffer[Rope[T]]
     val second = new ArrayBuffer[Rope[T]]
     var buffer = first
+    val iter = new LeafIterator()
 
-    while (offset < this.length)
+    while (iter.hasNext)
     {
-      val foundLeaf = findLeafAt(offset)
+      val foundLeaf = iter.next //returns the next leaf in the sequence using the stack.
       
       // to keep it immutable, we have to copy.
       val copiedArray = Array.ofDim[AnyRef](foundLeaf.length)
@@ -102,9 +103,70 @@ trait Rope[T] extends Seq[T]
     (first, second)
   }
 
+  // used by take(). Implementation with LeafIterator should be faster than using findLeafAt.
+  private def collectLeavesForTake(i: Int): ArrayBuffer[Rope[T]] = {
+    var offset = 0
+    val buffer = new ArrayBuffer[Rope[T]]
+    val iter = new LeafIterator()
+
+    breakable {
+      while (iter.hasNext)
+      {
+        val foundLeaf = iter.next //returns the next leaf in the sequence using the stack.
+        
+        // to keep it immutable, we have to copy.
+        val copiedArray = Array.ofDim[AnyRef](foundLeaf.length)
+        Array.copy(foundLeaf.array, 0, copiedArray, 0, foundLeaf.length)
+        val leafToInsert = Leaf[T](copiedArray)
+
+        if (i >= offset && i <= offset + leafToInsert.length - 1) { //then i is in the found leaf.
+          val firstArray = Array.ofDim[AnyRef](i-offset)
+          Array.copy(foundLeaf.array, 0, firstArray, 0, i-offset)
+          val firstLeaf = Leaf[T](firstArray)
+          buffer += firstLeaf
+          break
+        } else { // just put the entire leaf into the buffer
+          buffer += leafToInsert
+        }
+        offset = offset + leafToInsert.length
+      }
+    }
+    buffer
+  }
+
+  // used by drop(). Implementation with LeafIterator should be faster than using findLeafAt.
+  private def collectLeavesForDrop(i: Int): ArrayBuffer[Rope[T]] = {
+    var offset = 0
+    val buffer = new ArrayBuffer[Rope[T]]
+    val iter = new LeafIterator()
+
+    val (firstLeaf, leafOffset) = iter.startAt(i)
+    offset = leafOffset
+
+    val splitArray = Array.ofDim[AnyRef](firstLeaf.length-(i-offset))
+    Array.copy(firstLeaf.array, i-offset, splitArray, 0, firstLeaf.length-(i-offset))
+    val splitLeaf = Leaf[T](splitArray)
+    buffer += splitLeaf
+
+    while (iter.hasNext) // just put the rest of the leaves into the buffer
+    {
+      val nextLeaf = iter.next
+
+      // to keep it immutable, we have to copy.
+      val copiedArray = Array.ofDim[AnyRef](nextLeaf.length)
+      Array.copy(nextLeaf.array, 0, copiedArray, 0, nextLeaf.length)
+      val leafToInsert = Leaf[T](copiedArray)
+
+      buffer += leafToInsert
+    }
+    buffer
+  }
+
+  override def drop(i: Int): Rope[T] = Rope.buildFromLeaves(this.collectLeavesForDrop(i))
+
   protected[immutable] def findLeafAt(i: Int): Leaf[T]
 
-  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]]): Leaf[T]
+  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]], offset: Int = 0): (Leaf[T], Int)
 
   override def foreach[U](f: T => U): Unit = {
     val leafIterator = new LeafIterator
@@ -116,11 +178,8 @@ trait Rope[T] extends Seq[T]
 
   def concat(that: Rope[T]): Rope[T]
   override def companion: GenericCompanion[Rope] = Rope
-  def delete(i: Int): Rope[T] 
 
   private def fibonacci(n: Int): Int = if (n == 0 || n == 1) 1 else fibonacci(n-1) + fibonacci(n-2)
-
-  def insert(i: Int, r: Rope[T]): Rope[T]
 
   def isBalanced: Boolean = {
     val n = this.depth
@@ -139,6 +198,8 @@ trait Rope[T] extends Seq[T]
 
   def subseq(from: Int, to: Int): Rope[T]
 
+  override def take(i: Int): Rope[T] = Rope.buildFromLeaves(this.collectLeavesForTake(i))
+
   /* Used for avoiding too many inner nodes. */
   protected[immutable] def isShortLeaf: Boolean = false
   def iterator: Iterator[T] = new RopeIterator
@@ -156,28 +217,46 @@ trait Rope[T] extends Seq[T]
   private class LeafIterator extends Iterator[Leaf[T]] {
     var stack = mutable.Stack[InnerNode[T]]()
     var currentNode = Rope.this
-    var visitedLeft = false
+    var offset = 0
     var i = 0
 
     def hasNext = i < Rope.this.length
 
     def next = {
-      while (i >= currentNode.length) //we have to go up
+      while (stack.nonEmpty && i >= currentNode.length + offset) {//we have to go up
+        offset -= stack.top.left.length
         currentNode = stack.pop
+      }
 
       // at this point, we know that i < currentNode.length
-      val foundLeaf = currentNode.findWithStack(i, stack)
-      currentNode = stack.pop
+      val (foundLeaf, _) = currentNode.findWithStack(i, stack)
+      if (stack.nonEmpty && stack.top.left == foundLeaf) offset = i
+      if (stack.nonEmpty) currentNode = stack.pop
       i += foundLeaf.length
       foundLeaf
     }
+
+    // has to be called before `next`. Returns the first leaf and its offset.
+    def startAt(pos: Int): (Leaf[T], Int) = {
+      val (foundLeaf, leafOffset) = currentNode.findWithStack(pos, stack)
+      
+      offset = if (stack.nonEmpty) {
+        if (stack.top.left == foundLeaf) leafOffset
+        else leafOffset - stack.top.left.length
+      } else 0
+      
+      if (stack.nonEmpty) currentNode = stack.pop
+      i = leafOffset + foundLeaf.length
+      (foundLeaf, leafOffset)
+    }
+
   }// end LeafIterator
 }// end Rope
 
 
 
 // LEAF
-case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = 32) extends Rope[T] {
+case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int = Rope.defaultShortLeaf) extends Rope[T] {
 
   def apply(i: Int): T = array(i).asInstanceOf[T]
 
@@ -189,21 +268,17 @@ case class Leaf[T] private[immutable] (val array: Array[AnyRef], shortLeaf: Int 
     else
       new InnerNode(this, that)
   }
-
-  def delete(i: Int): Rope[T]  = sys.error("not implemented yet.")
   
   protected[immutable] def depth: Int = 0
 
   protected[immutable] def findLeafAt(i: Int): Leaf[T] = this
 
-  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]]): Leaf[T] = this
-
-  def insert(i: Int, r: Rope[T]): Rope[T]  = sys.error("not implemented yet.")
+  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]], offset: Int): (Leaf[T], Int) = (this, offset)
   
   override def isShortLeaf: Boolean = this.length <= shortLeaf
 
   def length: Int = array.length
-/*  def split(i: Int): (Rope[T], Rope[T])  = sys.error("not implemented yet.")*/
+
   def subseq(from: Int, to: Int): Rope[T]  = sys.error("not implemented yet.")
 
 } // end Leaf
@@ -231,8 +306,6 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
       new InnerNode(this, that)
   }
 
-  def delete(i: Int): Rope[T]  = sys.error("not implemented yet.")
-
   protected[immutable] def depth: Int = 1 + math.max(left.depth, right.depth)
 
   protected[immutable] def findLeafAt(i: Int): Leaf[T] = {
@@ -244,17 +317,15 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
       sys.error("Index out of bounds.")
   }
 
-  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]]): Leaf[T] = {
+  private[immutable] def findWithStack(i: Int, stack: mutable.Stack[InnerNode[T]], offset: Int): (Leaf[T], Int) = {
     stack.push(this)
     if (left.length <= i)
-      right.findWithStack(i-left.length, stack)
+      right.findWithStack(i-left.length, stack, offset + left.length)
     else if (left.length > i)
-      left.findWithStack(i, stack)
+      left.findWithStack(i, stack, offset)
     else 
       sys.error("Index out of bounds.")
   }
-
-  def insert(i: Int, r: Rope[T]): Rope[T]  = sys.error("not implemented yet.")
 
 /*
   // split returns two ropes, one containing the first i elements, and another containing the rest
@@ -407,7 +478,7 @@ case class InnerNode[T] private[immutable] (var left: Rope[T], var right: Rope[T
 }// end InnerNode
 
 
-final class RopeBuilder[T](shortLeaf: Int = Rope.defaultShortLeaf) extends Builder[T, Rope[T]] {
+final private class RopeBuilder[T](shortLeaf: Int = Rope.defaultShortLeaf) extends Builder[T, Rope[T]] {
   
   val chain = ArrayBuffer(ArrayBuffer[AnyRef]())
   var last = chain(0)
@@ -440,7 +511,7 @@ final class RopeBuilder[T](shortLeaf: Int = Rope.defaultShortLeaf) extends Build
 
 object Rope extends SeqFactory[Rope] {
   
-  val defaultShortLeaf = 32 //shortLeaf gets a default value in class Leaf, so update that too
+  val defaultShortLeaf = 32 // the default length of leaves
 
   private[immutable] val BF = new GenericCanBuildFrom[Nothing] {
     override def apply() = newBuilder[Nothing]

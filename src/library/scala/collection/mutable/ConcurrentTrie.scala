@@ -202,12 +202,12 @@ final class INode[K, V](bn: MainNode[K, V], g: Gen) extends INodeBase[K, V](g) {
     
     m match {
       case cn: CNode[K, V] => // 1) a multinode
-        val idx = (hc >>> lev) & 0x1f
-        val bmp = cn.bitmap
+        val idx = (hc >>> lev) & 0x1
         val flag = 1 << idx
+        val bmp = cn.bitmap
         if ((bmp & flag) == 0) null // 1a) bitmap shows no binding
         else { // 1b) bitmap contains a value - descend
-          val pos = Integer.bitCount(bmp & (flag - 1))
+          val pos = if (bmp == 0xffffffff) idx else Integer.bitCount(bmp & (flag - 1))
           val sub = cn.array(pos)
           sub match {
             case in: INode[K, V] =>

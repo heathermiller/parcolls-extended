@@ -2,6 +2,11 @@ import Global._
 import scala.testing.Benchmark
 import scala.collection.mutable.ConcurrentTrie
 
+/*
+ * running the benchmark, example usage:
+ * scala -Dsz=1000000 -cp classes/ SingleRemovingCtrie2 10
+ * scala -Dsz=1000000 -Dpar=4 -cp classes/ MultiRemovingCtrie2 10
+ */
 
 object SingleRemovingCtrie2 extends Benchmark {
   

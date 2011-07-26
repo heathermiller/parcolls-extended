@@ -893,6 +893,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Foreach[S](op: T => S, protected[this] val pit: IterableSplitter[T]) extends Accessor[Unit, Foreach[S]] {
     @volatile var result: Unit = ()
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prevr: Option[Unit]) = pit.foreach(op)
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Foreach[S](op, p)
   }
@@ -900,6 +901,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class Count(pred: T => Boolean, protected[this] val pit: IterableSplitter[T]) extends Accessor[Int, Count] {
     // val pittxt = pit.toString
     @volatile var result: Int = 0
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prevr: Option[Int]) = result = pit.count(pred)
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Count(pred, p)
     override def merge(that: Count) = result = result + that.result
@@ -918,6 +920,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Fold[U >: T](z: U, op: (U, U) => U, protected[this] val pit: IterableSplitter[T]) extends Accessor[U, Fold[U]] {
     @volatile var result: U = null.asInstanceOf[U]
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prevr: Option[U]) = result = pit.fold(z)(op)
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Fold(z, op, p)
     override def merge(that: Fold[U]) = result = op(result, that.result)
@@ -926,6 +929,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class Aggregate[S](z: S, seqop: (S, T) => S, combop: (S, S) => S, protected[this] val pit: IterableSplitter[T])
   extends Accessor[S, Aggregate[S]] {
     @volatile var result: S = null.asInstanceOf[S]
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prevr: Option[S]) = result = pit.foldLeft(z)(seqop)
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Aggregate(z, seqop, combop, p)
     override def merge(that: Aggregate[S]) = result = combop(result, that.result)
@@ -933,6 +937,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Sum[U >: T](num: Numeric[U], protected[this] val pit: IterableSplitter[T]) extends Accessor[U, Sum[U]] {
     @volatile var result: U = null.asInstanceOf[U]
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prevr: Option[U]) = result = pit.sum(num)
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Sum(num, p)
     override def merge(that: Sum[U]) = result = num.plus(result, that.result)
@@ -940,6 +945,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Product[U >: T](num: Numeric[U], protected[this] val pit: IterableSplitter[T]) extends Accessor[U, Product[U]] {
     @volatile var result: U = null.asInstanceOf[U]
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prevr: Option[U]) = result = pit.product(num)
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Product(num, p)
     override def merge(that: Product[U]) = result = num.times(result, that.result)
@@ -968,6 +974,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class Map[S, That](f: T => S, pbf: CanCombineFrom[Repr, S, That], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[S, That], Map[S, That]] {
     @volatile var result: Combiner[S, That] = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[S, That]]) = result = pit.map2combiner(f, reuse(prev, pbf(self.repr)))
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Map(f, pbf, p)
     override def merge(that: Map[S, That]) = result = result combine that.result
@@ -977,6 +984,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   (pf: PartialFunction[T, S], pbf: CanCombineFrom[Repr, S, That], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[S, That], Collect[S, That]] {
     @volatile var result: Combiner[S, That] = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[S, That]]) = result = pit.collect2combiner[S, That](pf, pbf(self.repr))
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Collect(pf, pbf, p)
     override def merge(that: Collect[S, That]) = result = result combine that.result
@@ -985,6 +993,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class FlatMap[S, That](f: T => GenTraversableOnce[S], pbf: CanCombineFrom[Repr, S, That], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[S, That], FlatMap[S, That]] {
     @volatile var result: Combiner[S, That] = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[S, That]]) = result = pit.flatmap2combiner(f, pbf(self.repr))
     protected[this] def newSubtask(p: IterableSplitter[T]) = new FlatMap(f, pbf, p)
     override def merge(that: FlatMap[S, That]) = {
@@ -996,6 +1005,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Forall(pred: T => Boolean, protected[this] val pit: IterableSplitter[T]) extends Accessor[Boolean, Forall] {
     @volatile var result: Boolean = true
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Boolean]) = { if (!pit.isAborted) result = pit.forall(pred); if (result == false) pit.abort }
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Forall(pred, p)
     override def merge(that: Forall) = result = result && that.result
@@ -1003,6 +1013,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Exists(pred: T => Boolean, protected[this] val pit: IterableSplitter[T]) extends Accessor[Boolean, Exists] {
     @volatile var result: Boolean = false
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Boolean]) = { if (!pit.isAborted) result = pit.exists(pred); if (result == true) pit.abort }
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Exists(pred, p)
     override def merge(that: Exists) = result = result || that.result
@@ -1010,6 +1021,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   
   protected[this] class Find[U >: T](pred: T => Boolean, protected[this] val pit: IterableSplitter[T]) extends Accessor[Option[U], Find[U]] {
     @volatile var result: Option[U] = None
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Option[U]]) = { if (!pit.isAborted) result = pit.find(pred); if (result != None) pit.abort }
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Find(pred, p)
     override def merge(that: Find[U]) = if (this.result == None) result = that.result
@@ -1018,6 +1030,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class Filter[U >: T, This >: Repr](pred: T => Boolean, cbf: () => Combiner[U, This], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[U, This], Filter[U, This]] {
     @volatile var result: Combiner[U, This] = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[U, This]]) = {
       result = pit.filter2combiner(pred, reuse(prev, cbf()))
     }
@@ -1028,6 +1041,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class FilterNot[U >: T, This >: Repr](pred: T => Boolean, cbf: () => Combiner[U, This], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[U, This], FilterNot[U, This]] {
     @volatile var result: Combiner[U, This] = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[U, This]]) = {
       result = pit.filterNot2combiner(pred, reuse(prev, cbf()))
     }
@@ -1038,6 +1052,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected class Copy[U >: T, That](cfactory: () => Combiner[U, That], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[U, That], Copy[U, That]] {
     @volatile var result: Combiner[U, That] = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[U, That]]) = result = pit.copy2builder[U, That, Combiner[U, That]](reuse(prev, cfactory()))
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Copy[U, That](cfactory, p)
     override def merge(that: Copy[U, That]) = result = result combine that.result
@@ -1046,6 +1061,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class Partition[U >: T, This >: Repr](pred: T => Boolean, cbf: () => Combiner[U, This], protected[this] val pit: IterableSplitter[T])
   extends Transformer[(Combiner[U, This], Combiner[U, This]), Partition[U, This]] {
     @volatile var result: (Combiner[U, This], Combiner[U, This]) = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[(Combiner[U, This], Combiner[U, This])]) = result = pit.partition2combiners(pred, reuse(prev.map(_._1), cbf()), reuse(prev.map(_._2), cbf()))
     protected[this] def newSubtask(p: IterableSplitter[T]) = new Partition(pred, cbf, p)
     override def merge(that: Partition[U, This]) = result = (result._1 combine that.result._1, result._2 combine that.result._2)
@@ -1057,6 +1073,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
     protected[this] val pit: IterableSplitter[T]
   ) extends Transformer[HashMapCombiner[K, U], GroupBy[K, U]] {
     @volatile var result: Result = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     final def leaf(prev: Option[Result]) = {
       // note: HashMapCombiner doesn't merge same keys until evaluation
       val cb = mcf()
@@ -1244,6 +1261,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class ToParCollection[U >: T, That](cbf: () => Combiner[U, That], protected[this] val pit: IterableSplitter[T])
   extends Transformer[Combiner[U, That], ToParCollection[U, That]] {
     @volatile var result: Result = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[U, That]]) {
       result = cbf()
       while (pit.hasNext) result += pit.next
@@ -1255,6 +1273,7 @@ self: ParIterableLike[T, Repr, Sequential] =>
   protected[this] class ToParMap[K, V, That](cbf: () => Combiner[(K, V), That], protected[this] val pit: IterableSplitter[T])(implicit ev: T <:< (K, V))
   extends Transformer[Combiner[(K, V), That], ToParMap[K, V, That]] {
     @volatile var result: Result = null
+    override def shouldSplitFurther = pit.remainingEstimate > threshold(size, parallelismLevel)
     def leaf(prev: Option[Combiner[(K, V), That]]) {
       result = cbf()
       while (pit.hasNext) result += pit.next

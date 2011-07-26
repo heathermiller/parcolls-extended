@@ -351,19 +351,6 @@ final class FailedNode[K, V](p: MainNode[K, V]) extends MainNode[K, V] {
   def casPrev(ov: BasicNode, nv: BasicNode) = throw new UnsupportedOperationException
 }
 
-
-/* unused
-final class NullNode(p: BasicNode) extends BasicNode {
-  prev = p
-  
-  def string(lev: Int) = throw new UnsupportedOperationException
-  def casPrev(ov: BasicNode, nv: BasicNode) = throw new UnsupportedOperationException
-  
-  override def isNullNode = true
-}
-*/
-
-
 trait KVNode[K, V] {
   def kvPair: (K, V)
 }
@@ -452,20 +439,6 @@ extends CNodeBase[K, V] {
     case _ => inode
   }
   
-  private def extractTNode(n: BasicNode, ct: ConcurrentTrie[K, V]) = n match {
-    case in: INode[K, V] => in.GCAS_READ(ct) match {
-      case tn: TNode[K, V] => tn
-    }
-  }
-  
-  private def isTombed(bn: BasicNode, ct: ConcurrentTrie[K, V]) = bn match {
-    case in: INode[K, V] => in.GCAS_READ(ct) match {
-      case tn: TNode[K, V] => true
-      case _ => false
-    }
-    case _ => false
-  }
-  
   final def toContracted(lev: Int) = if (array.length == 1 && lev > 0) array(0) match {
     case sn: SNode[K, V] => sn.copyTombed
     case _ => this
@@ -535,7 +508,7 @@ case class RDCSS_Descriptor[K, V](old: INode[K, V], expectedmain: MainNode[K, V]
 
 
 class ConcurrentTrie[K, V] private (r: AnyRef, rtupd: AtomicReferenceFieldUpdater[ConcurrentTrieBase[K, V], AnyRef])
-extends ConcurrentTrieBase[K, V] with ConcurrentMap[K, V] {
+extends ConcurrentTrieBase[K, V] with ConcurrentMap[K, V] with MapLike[K, V, ConcurrentTrie[K, V]] {
   private val rootupdater = rtupd
   
   root = r
@@ -544,6 +517,8 @@ extends ConcurrentTrieBase[K, V] with ConcurrentMap[K, V] {
     INode.newRootNode,
     AtomicReferenceFieldUpdater.newUpdater(classOf[ConcurrentTrieBase[K, V]], classOf[AnyRef], "root")
   )
+  
+  override def empty = new ConcurrentTrie[K, V] 
   
   /* internal methods */
   

@@ -405,6 +405,7 @@ self =>
    *       of `remaining` values of split iterators must be less than or equal to this upper bound.
    */
   def remaining: Int
+  def remainingEstimate = remaining
   
   protected def buildString(closure: (String => Unit) => Unit): String = {
     var output = ""

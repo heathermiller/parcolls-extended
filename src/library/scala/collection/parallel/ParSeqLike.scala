@@ -44,7 +44,7 @@ trait ParSeqLike[+T, +Repr <: ParSeq[T], +Sequential <: Seq[T] with SeqLike[T, S
 extends scala.collection.GenSeqLike[T, Repr]
    with ParIterableLike[T, Repr, Sequential] {
 self =>
-  import tasksupport._
+//  import tasksupport._
   
   type SuperParIterator = IterableSplitter[T]
   
@@ -138,7 +138,7 @@ self =>
     val realfrom = if (from < 0) 0 else from
     val ctx = new DefaultSignalling with AtomicIndexFlag
     ctx.setIndexFlag(Int.MaxValue)
-    executeAndWaitResult(new SegmentLength(p, 0, splitter.psplit(realfrom, length - realfrom)(1) assign ctx))._1
+    tasks.executeAndWaitResult(new SegmentLength(p, 0, splitter.psplit(realfrom, length - realfrom)(1) assign ctx))._1
   }
   
   /** Finds the first element satisfying some predicate.
@@ -156,7 +156,7 @@ self =>
     val realfrom = if (from < 0) 0 else from
     val ctx = new DefaultSignalling with AtomicIndexFlag
     ctx.setIndexFlag(Int.MaxValue)
-    executeAndWaitResult(new IndexWhere(p, realfrom, splitter.psplit(realfrom, length - realfrom)(1) assign ctx))
+    tasks.executeAndWaitResult(new IndexWhere(p, realfrom, splitter.psplit(realfrom, length - realfrom)(1) assign ctx))
   }
   
   /** Finds the last element satisfying some predicate.
@@ -174,15 +174,15 @@ self =>
     val until = if (end >= length) length else end + 1
     val ctx = new DefaultSignalling with AtomicIndexFlag
     ctx.setIndexFlag(Int.MinValue)
-    executeAndWaitResult(new LastIndexWhere(p, 0, splitter.psplit(until, length - until)(0) assign ctx))
+    tasks.executeAndWaitResult(new LastIndexWhere(p, 0, splitter.psplit(until, length - until)(0) assign ctx))
   }
   
   def reverse: Repr = {
-    executeAndWaitResult(new Reverse(() => newCombiner, splitter) mapResult { _.result })
+    tasks.executeAndWaitResult(new Reverse(() => newCombiner, splitter) mapResult { _.result })
   }
   
   def reverseMap[S, That](f: T => S)(implicit bf: CanBuildFrom[Repr, S, That]): That = bf ifParallel { pbf =>
-    executeAndWaitResult(new ReverseMap[S, That](f, pbf, splitter) mapResult { _.result })
+    tasks.executeAndWaitResult(new ReverseMap[S, That](f, pbf, splitter) mapResult { _.result })
   } otherwise seq.reverseMap(f)(bf2seq(bf))
   
   /** Tests whether this $coll contains the given sequence at a given index.
@@ -200,13 +200,13 @@ self =>
     else if (pthat.length > length - offset) false
     else {
       val ctx = new DefaultSignalling with VolatileAbort
-      executeAndWaitResult(new SameElements(splitter.psplit(offset, pthat.length)(1) assign ctx, pthat.splitter))
+      tasks.executeAndWaitResult(new SameElements(splitter.psplit(offset, pthat.length)(1) assign ctx, pthat.splitter))
     }
   } otherwise seq.startsWith(that, offset)
   
   override def sameElements[U >: T](that: GenIterable[U]): Boolean = that ifParSeq { pthat =>
     val ctx = new DefaultSignalling with VolatileAbort
-    length == pthat.length && executeAndWaitResult(new SameElements(splitter assign ctx, pthat.splitter))
+    length == pthat.length && tasks.executeAndWaitResult(new SameElements(splitter assign ctx, pthat.splitter))
   } otherwise seq.sameElements(that)
   
   /** Tests whether this $coll ends with the given parallel sequence.
@@ -223,7 +223,7 @@ self =>
     else {
       val ctx = new DefaultSignalling with VolatileAbort
       val tlen = that.length
-      executeAndWaitResult(new SameElements(splitter.psplit(length - tlen, tlen)(1) assign ctx, pthat.splitter))
+      tasks.executeAndWaitResult(new SameElements(splitter.psplit(length - tlen, tlen)(1) assign ctx, pthat.splitter))
     }
   } otherwise seq.endsWith(that)
   
@@ -236,10 +236,10 @@ self =>
       val copystart = new Copy[U, That](() => pbf(repr), pits(0))
       val copymiddle = wrap {
         val tsk = new that.Copy[U, That](() => pbf(repr), that.splitter)
-        tasksupport.executeAndWaitResult(tsk)
+        tasks.executeAndWaitResult(tsk)
       }
       val copyend = new Copy[U, That](() => pbf(repr), pits(2))
-      executeAndWaitResult(((copystart parallel copymiddle) { _ combine _ } parallel copyend) { _ combine _ } mapResult {
+      tasks.executeAndWaitResult(((copystart parallel copymiddle) { _ combine _ } parallel copyend) { _ combine _ } mapResult {
         _.result
       })
     } else patch_sequential(from, patch.seq, replaced)
@@ -257,7 +257,7 @@ self =>
   }
   
   def updated[U >: T, That](index: Int, elem: U)(implicit bf: CanBuildFrom[Repr, U, That]): That = bf ifParallel { pbf =>
-    executeAndWaitResult(new Updated(index, elem, pbf, splitter) mapResult { _.result })
+    tasks.executeAndWaitResult(new Updated(index, elem, pbf, splitter) mapResult { _.result })
   } otherwise seq.updated(index, elem)(bf2seq(bf))
   
   def +:[U >: T, That](elem: U)(implicit bf: CanBuildFrom[Repr, U, That]): That = {
@@ -275,7 +275,7 @@ self =>
   override def zip[U >: T, S, That](that: GenIterable[S])(implicit bf: CanBuildFrom[Repr, (U, S), That]): That = if (bf.isParallel && that.isParSeq) {
     val pbf = bf.asParallel
     val thatseq = that.asParSeq
-    executeAndWaitResult(new Zip(length min thatseq.length, pbf, splitter, thatseq.splitter) mapResult { _.result });
+    tasks.executeAndWaitResult(new Zip(length min thatseq.length, pbf, splitter, thatseq.splitter) mapResult { _.result });
   } else super.zip(that)(bf)
   
   /** Tests whether every element of this $coll relates to the
@@ -292,7 +292,7 @@ self =>
    */
   def corresponds[S](that: GenSeq[S])(p: (T, S) => Boolean): Boolean = that ifParSeq { pthat =>
     val ctx = new DefaultSignalling with VolatileAbort
-    length == pthat.length && executeAndWaitResult(new Corresponds(p, splitter assign ctx, pthat.splitter))
+    length == pthat.length && tasks.executeAndWaitResult(new Corresponds(p, splitter assign ctx, pthat.splitter))
   } otherwise seq.corresponds(that)(p)
   
   def diff[U >: T](that: GenSeq[U]): Repr = sequentially {

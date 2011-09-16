@@ -645,7 +645,7 @@ object Test9_parallel {
     
   } catch {
     case e: Exception =>
-      println("Error in Test5_parallel: " + e)
+      println("Error in Test9_parallel: " + e)
       throw e
   }
 }

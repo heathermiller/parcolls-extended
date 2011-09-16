@@ -8,18 +8,27 @@
 
 
 
-package scala.concurrent
+package scala
 
-import java.util.concurrent.{ExecutorService, Callable, ThreadPoolExecutor}
+import java.util.concurrent.Callable
 
-/** The <code>ThreadPoolRunner</code> trait uses
+import scala.concurrent.forkjoin._
+import scala.concurrent._
+
+/** The <code>ForkJoinTaskRunner</code> trait uses
  *  a <code>java.util.concurrent.ExecutorService</code>
  *  to run submitted tasks.
  *  
- *  @author Philipp Haller
+ *  @author Philipp Haller, Heather Miller
  */
-trait ThreadPoolRunner extends FutureTaskRunner {
-
+private[scala] class ForkJoinTaskRunner(parallelism: Int,
+							 	 handler: UncaughtExceptionHandler, 
+							 	 asyncMode: Boolean
+							 	 ) extends FutureTaskRunner {
+  
+  def this(parallelism: Int) = this(parallelism, null, false)
+  def this() = this(Runtime.getRuntime().availableProcessors())
+  
   type Task[T] = Callable[T] with Runnable
   type Future[T] = java.util.concurrent.Future[T]
 
@@ -28,48 +37,43 @@ trait ThreadPoolRunner extends FutureTaskRunner {
     def call() = fun()
   }
 
+  private[scala] val pool = {
+    val p = new ForkJoinPool(parallelism, ForkJoinPool.defaultForkJoinWorkerThreadFactory)
+    p.setUncaughtExceptionHandler(handler)
+    p.setAsyncMode(asyncMode)
+    p
+  }
+  
   implicit def functionAsTask[S](fun: () => S): Task[S] =
     new RunCallable(fun)
 
   implicit def futureAsFunction[S](x: Future[S]): () => S =
     () => x.get()
 
-  protected def executor: ExecutorService
-
   def submit[S](task: Task[S]): Future[S] = {
-    executor.submit[S](task)
+    pool.submit[S](task)
   }
 
   def execute[S](task: Task[S]) {
-    executor execute task
+    pool execute task
   }
 
   def managedBlock(blocker: ManagedBlocker) {
     blocker.block()
   }
-  
-  def minimumPoolSize: Int = {
-    if (executor.isInstanceOf[ThreadPoolExecutor])
-      executor.asInstanceOf[ThreadPoolExecutor].getCorePoolSize
-    else
-      0
-  }
+
+  def shutdown() = pool.shutdown()
+
+
+  def minimumPoolSize: Int = parallelism
       
-  def minimumPoolSize_=(size: Int): Unit = {
-    if (executor.isInstanceOf[ThreadPoolExecutor])
-      executor.asInstanceOf[ThreadPoolExecutor].setCorePoolSize(size)
-  }
+  def minimumPoolSize_=(size: Int): Unit = { /*do nothing. The fork/join framework only allows sizing upon construction*/ }
       
-  def maximumPoolSize: Int = {
-    if (executor.isInstanceOf[ThreadPoolExecutor])
-      executor.asInstanceOf[ThreadPoolExecutor].getMaximumPoolSize
-    else
-      0
-  }
+  def maximumPoolSize: Int = Int.MaxValue
       
-  def maximumPoolSize_=(size: Int): Unit = {
-    if (executor.isInstanceOf[ThreadPoolExecutor])
-      executor.asInstanceOf[ThreadPoolExecutor].setMaximumPoolSize(size)
-  }        
-  
+  def maximumPoolSize_=(size: Int): Unit = { /*do nothing. The fork/join framework has no maximum pool size property*/ }
+ 
 }
+
+
+

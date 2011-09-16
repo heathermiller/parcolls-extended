@@ -18,6 +18,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.UnrolledBuffer
 import scala.collection.mutable.UnrolledBuffer.Unrolled
 import scala.collection.parallel.TaskSupport
+import scala.collection.parallel.Task
 //import scala.collection.parallel.EnvironmentPassingCombiner
 import scala.collection.parallel.unsupportedop
 import scala.collection.parallel.Combiner
@@ -40,7 +41,7 @@ extends Combiner[T, ParArray[T]] {
   // because size is doubling, random access is O(logn)!
   val buff = new DoublingUnrolledBuffer[Any]
   
-  import collection.parallel.tasksupport._
+//  import collection.parallel.tasksupport._
   
   def +=(elem: T) = {
     buff += elem
@@ -51,9 +52,10 @@ extends Combiner[T, ParArray[T]] {
     val arrayseq = new ArraySeq[T](size)
     val array = arrayseq.array.asInstanceOf[Array[Any]]
     
-    executeAndWaitResult(new CopyUnrolledToArray(array, 0, size))
+    val parArray = new ParArray(arrayseq)
+    parArray.tasks.executeAndWaitResult(new CopyUnrolledToArray(array, 0, size))
     
-    new ParArray(arrayseq)
+    parArray
   }
   
   def clear() {
@@ -109,7 +111,10 @@ extends Combiner[T, ParArray[T]] {
       val fp = howmany / 2
       List(new CopyUnrolledToArray(array, offset, fp), new CopyUnrolledToArray(array, offset + fp, howmany - fp))
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(size, parallelismLevel)
+    def shouldSplitFurther = {
+      val tempArray = new ParArray[T](0)
+      howmany > collection.parallel.thresholdFromSize(size, tempArray.tasks.parallelismLevel)
+    }
     override def toString = "CopyUnrolledToArray(" + offset + ", " + howmany + ")"
   }
 }

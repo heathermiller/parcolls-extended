@@ -55,5 +55,13 @@ class ThreadRunner extends FutureTaskRunner {
   def shutdown() {
     // do nothing
   }
-
+  
+  def minimumPoolSize: Int = 0
+      
+  def minimumPoolSize_=(size: Int): Unit = { /* do nothing. */ }
+      
+  def maximumPoolSize: Int = Int.MaxValue
+      
+  def maximumPoolSize_=(size: Int): Unit = { /* do nothing. */ }
+  
 }

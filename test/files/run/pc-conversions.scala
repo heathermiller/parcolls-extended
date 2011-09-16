@@ -7,7 +7,9 @@ import collection._
 object Test {
   
   def main(args: Array[String]) {
+    
     testConversions
+    
   }
   
   def testConversions {

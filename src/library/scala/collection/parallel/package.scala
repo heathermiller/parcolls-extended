@@ -17,6 +17,7 @@ import scala.collection.generic.CanCombineFrom
 import scala.collection.parallel.mutable.ParArray
 import scala.collection.mutable.UnrolledBuffer
 import annotation.unchecked.uncheckedVariance
+import scala.concurrent.TaskRunners
 
 
 /** Package object for parallel collections. 
@@ -48,11 +49,24 @@ package object parallel {
   private[parallel] def getTaskSupport: TaskSupport = 
     if (util.Properties.isJavaAtLeast("1.6")) {
       val vendor = util.Properties.javaVmVendor
-      if ((vendor contains "Sun") || (vendor contains "Apple")) new ForkJoinTaskSupport
-      else new ThreadPoolTaskSupport
-    } else new ThreadPoolTaskSupport
+      if ((vendor contains "Sun") || (vendor contains "Apple")) new ForkJoinTaskSupport(TaskRunners.makeForkJoinPool.asInstanceOf[ForkJoinTaskRunner])
+      else new TaskRunnerTaskSupport(TaskRunners.makeCachedThreadPool)
+    } else new TaskRunnerTaskSupport(TaskRunners.makeCachedThreadPool)
   
-  val tasksupport = getTaskSupport
+  //val tasksupport = getTaskSupport
+  
+  private[parallel] def getDefaultTasks: Tasks =
+    if (util.Properties.isJavaAtLeast("1.6")) {
+      val vendor = util.Properties.javaVmVendor
+      if ((vendor contains "Sun") || (vendor contains "Apple")) new AdaptiveWorkStealingForkJoinTasks(TaskRunners.makeForkJoinPool.asInstanceOf[ForkJoinTaskRunner])
+      else {
+        val runner = scala.concurrent.TaskRunners.makeCachedThreadPool
+        new AdaptiveWorkStealingTaskRunnerTasks(runner)
+      }
+    } else {
+      val runner = scala.concurrent.TaskRunners.makeCachedThreadPool
+      new AdaptiveWorkStealingTaskRunnerTasks(runner)
+    }
   
   /* implicit conversions */
   

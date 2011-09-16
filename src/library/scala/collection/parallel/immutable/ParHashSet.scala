@@ -6,11 +6,13 @@
 **                          |/                                          **
 \*                                                                      */
 
-package scala.collection.parallel.immutable
+package scala.collection.parallel
+package immutable
 
 import scala.collection.parallel.ParSetLike
 import scala.collection.parallel.Combiner
 import scala.collection.parallel.IterableSplitter
+import scala.collection.parallel.Task
 import scala.collection.mutable.UnrolledBuffer.Unrolled
 import scala.collection.mutable.UnrolledBuffer
 import scala.collection.generic.ParSetFactory
@@ -110,6 +112,17 @@ self =>
     def remaining = sz - i
   }
   
+  private def writeObject(out: java.io.ObjectOutputStream) {
+    out.defaultWriteObject
+  }
+  
+  private def readObject(in: java.io.ObjectInputStream) {
+    in.defaultReadObject
+    
+    tasks = getDefaultTasks
+    _taskRunner = null
+  }
+  
 }
 
 
@@ -131,7 +144,7 @@ private[immutable] abstract class HashSetCombiner[T]
 extends collection.parallel.BucketCombiner[T, ParHashSet[T], Any, HashSetCombiner[T]](HashSetCombiner.rootsize) {
 //self: EnvironmentPassingCombiner[T, ParHashSet[T]] =>
   import HashSetCombiner._
-  import collection.parallel.tasksupport._
+//  import collection.parallel.tasksupport._
   val emptyTrie = HashSet.empty[T]
   
   def +=(elem: T) = {
@@ -151,7 +164,8 @@ extends collection.parallel.BucketCombiner[T, ParHashSet[T], Any, HashSetCombine
     val bucks = buckets.filter(_ != null).map(_.headPtr)
     val root = new Array[HashSet[T]](bucks.length)
     
-    executeAndWaitResult(new CreateTrie(bucks, root, 0, bucks.length))
+    val tempSet = new ParHashSet[T]
+    tempSet.tasks.executeAndWaitResult(new CreateTrie(bucks, root, 0, bucks.length))
     
     var bitmap = 0
     var i = 0
@@ -206,7 +220,10 @@ extends collection.parallel.BucketCombiner[T, ParHashSet[T], Any, HashSetCombine
       val fp = howmany / 2
       List(new CreateTrie(bucks, root, offset, fp), new CreateTrie(bucks, root, offset + fp, howmany - fp))
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, parallelismLevel)
+    def shouldSplitFurther = {
+      val tempSet = new ParHashSet[T]
+      howmany > collection.parallel.thresholdFromSize(root.length, tempSet.tasks.parallelismLevel)
+    }
   }
   
 }

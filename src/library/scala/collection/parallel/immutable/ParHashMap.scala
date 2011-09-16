@@ -6,11 +6,13 @@
 **                          |/                                          **
 \*                                                                      */
 
-package scala.collection.parallel.immutable
+package scala.collection.parallel
+package immutable
 
 import scala.collection.parallel.ParMapLike
 import scala.collection.parallel.Combiner
 import scala.collection.parallel.IterableSplitter
+import scala.collection.parallel.Task
 import scala.collection.mutable.UnrolledBuffer.Unrolled
 import scala.collection.mutable.UnrolledBuffer
 import scala.collection.generic.ParMapFactory
@@ -130,6 +132,17 @@ self =>
     }
   }
   
+  private def writeObject(out: java.io.ObjectOutputStream) {
+    out.defaultWriteObject
+  }
+  
+  private def readObject(in: java.io.ObjectInputStream) {
+    in.defaultReadObject
+    
+    tasks = getDefaultTasks
+    _taskRunner = null
+  }
+  
 }
 
 
@@ -156,7 +169,7 @@ private[parallel] abstract class HashMapCombiner[K, V]
 extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), HashMapCombiner[K, V]](HashMapCombiner.rootsize) {
 //self: EnvironmentPassingCombiner[(K, V), ParHashMap[K, V]] =>
   import HashMapCombiner._
-  import collection.parallel.tasksupport._
+//  import collection.parallel.tasksupport._
   val emptyTrie = HashMap.empty[K, V]
   
   def +=(elem: (K, V)) = {
@@ -176,7 +189,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
     val bucks = buckets.filter(_ != null).map(_.headPtr)
     val root = new Array[HashMap[K, V]](bucks.length)
     
-    executeAndWaitResult(new CreateTrie(bucks, root, 0, bucks.length))
+    ParHashMap.empty.tasks.executeAndWaitResult(new CreateTrie(bucks, root, 0, bucks.length))
     
     var bitmap = 0
     var i = 0
@@ -198,7 +211,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
     val bucks = buckets.filter(_ != null).map(_.headPtr)
     val root = new Array[HashMap[K, AnyRef]](bucks.length)
     
-    executeAndWaitResult(new CreateGroupedTrie(cbf, bucks, root, 0, bucks.length))
+    ParHashMap.empty.tasks.executeAndWaitResult(new CreateGroupedTrie(cbf, bucks, root, 0, bucks.length))
     
     var bitmap = 0
     var i = 0
@@ -259,7 +272,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
       val fp = howmany / 2
       List(new CreateTrie(bucks, root, offset, fp), new CreateTrie(bucks, root, offset + fp, howmany - fp))
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, parallelismLevel)
+    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, ParHashMap.empty.tasks.parallelismLevel)
   }
   
   class CreateGroupedTrie[Repr](cbf: () => Combiner[V, Repr], bucks: Array[Unrolled[(K, V)]], root: Array[HashMap[K, AnyRef]], offset: Int, howmany: Int)
@@ -317,7 +330,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], (K, V), Has
       val fp = howmany / 2
       List(new CreateGroupedTrie(cbf, bucks, root, offset, fp), new CreateGroupedTrie(cbf, bucks, root, offset + fp, howmany - fp))
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, parallelismLevel)
+    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(root.length, ParHashMap.empty.tasks.parallelismLevel)
   }
   
 }

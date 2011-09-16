@@ -6,16 +6,8 @@
 **                          |/                                          **
 \*                                                                      */
 
+package scala
 
-package scala.collection.parallel
-
-import scala.concurrent.FutureTaskRunner
-
-
-trait TaskSupport extends Tasks
-
-private[collection] class ForkJoinTaskSupport(runner: ForkJoinTaskRunner) extends AdaptiveWorkStealingForkJoinTasks(runner) with TaskSupport 
-
-//private[collection] class ThreadPoolTaskSupport extends TaskSupport with AdaptiveWorkStealingThreadPoolTasks
-
-private[collection] class TaskRunnerTaskSupport(runner: FutureTaskRunner) extends AdaptiveWorkStealingTaskRunnerTasks(runner) with TaskSupport 
+package object concurrent {
+  type UncaughtExceptionHandler = java.lang.Thread.UncaughtExceptionHandler  
+}

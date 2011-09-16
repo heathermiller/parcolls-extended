@@ -10,7 +10,7 @@
 
 package scala.concurrent
 
-import java.util.concurrent.{ExecutorService, Executor}
+import java.util.concurrent.{ExecutorService, Executor, ThreadPoolExecutor}
 
 /** The <code>JavaConversions</code> object...
  *  
@@ -23,10 +23,11 @@ object JavaConversions {
       override protected def executor =
         exec
 
-      def shutdown() =
+      def shutdown() = {
         exec.shutdown()
-    }
-
+      }
+    }     
+  
   implicit def asTaskRunner(exec: Executor): TaskRunner =
     new TaskRunner {
       type Task[T] = Runnable
@@ -46,5 +47,7 @@ object JavaConversions {
       def shutdown() {
         // do nothing
       }
+      
+     
     }
 }

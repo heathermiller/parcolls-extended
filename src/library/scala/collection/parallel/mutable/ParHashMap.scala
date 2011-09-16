@@ -18,7 +18,7 @@ import collection.mutable.DefaultEntry
 import collection.mutable.HashEntry
 import collection.mutable.HashTable
 import collection.mutable.UnrolledBuffer
-
+import collection.parallel.Task
 
 
 /** A parallel hash map.
@@ -109,6 +109,8 @@ self =>
   
   private def readObject(in: java.io.ObjectInputStream) {
     init[V](in, new Entry(_, _))
+    tasks = getDefaultTasks
+    _taskRunner = null
   }
   
   private[parallel] override def brokenInvariants = {
@@ -161,7 +163,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], DefaultEntr
    with collection.mutable.HashTable.HashUtils[K]
 {
 //self: EnvironmentPassingCombiner[(K, V), ParHashMap[K, V]] =>
-  import collection.parallel.tasksupport._
+//  import collection.parallel.tasksupport._
   private var mask = ParHashMapCombiner.discriminantmask
   private var nonmasklen = ParHashMapCombiner.nonmasklength
   
@@ -182,7 +184,7 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], DefaultEntr
     // construct table
     val table = new AddingHashTable(size, tableLoadFactor)
     val bucks = buckets.map(b => if (b ne null) b.headPtr else null)
-    val insertcount = executeAndWaitResult(new FillBlocks(bucks, table, 0, bucks.length))
+    val insertcount = ParHashMap.empty.tasks.executeAndWaitResult(new FillBlocks(bucks, table, 0, bucks.length))
     table.setSize(insertcount)
     // TODO compare insertcount and size to see if compression is needed
     val c = table.hashTableContents
@@ -303,7 +305,10 @@ extends collection.parallel.BucketCombiner[(K, V), ParHashMap[K, V], DefaultEntr
     override def merge(that: FillBlocks) {
       this.result += that.result
     }
-    def shouldSplitFurther = howmany > collection.parallel.thresholdFromSize(ParHashMapCombiner.numblocks, parallelismLevel)
+    def shouldSplitFurther = {
+      val tempMap = new ParHashMap
+      howmany > collection.parallel.thresholdFromSize(ParHashMapCombiner.numblocks, tempMap.tasks.parallelismLevel)
+    }
   }
   
 }

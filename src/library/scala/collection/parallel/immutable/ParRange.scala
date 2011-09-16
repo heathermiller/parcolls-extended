@@ -6,7 +6,8 @@
 **                          |/                                          **
 \*                                                                      */
 
-package scala.collection.parallel.immutable
+package scala.collection.parallel
+package immutable
 
 import scala.collection.immutable.Range
 import scala.collection.parallel.Combiner
@@ -106,7 +107,19 @@ self =>
       }
       cb
     }
-  }  
+  }
+  
+  private def writeObject(out: java.io.ObjectOutputStream) {
+    out.defaultWriteObject
+  }
+  
+  private def readObject(in: java.io.ObjectInputStream) {
+    in.defaultReadObject
+    
+    tasks = getDefaultTasks
+    _taskRunner = null
+  }
+  
 }
 
 object ParRange {

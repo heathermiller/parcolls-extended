@@ -19,9 +19,30 @@ trait FutureTaskRunner extends TaskRunner {
    */
   def submit[S](task: Task[S]): Future[S]
 
-   /* Possibly blocks the current thread, for example, waiting for
-    * a lock or condition.
-    */
+  /** Possibly blocks the current thread, for example, waiting for
+   * a lock or condition.
+   */
   def managedBlock(blocker: ManagedBlocker): Unit
 
+  ///** Returns the target number of cores to utilize.
+  //*/
+  //def parallelism: Int
+  
+  /** Sets the minimum, or target number of threads in this `FutureTaskRunner`.
+   */
+  def minimumPoolSize_=(size: Int): Unit
+  
+  /** Gets the minimum, or target number of threads in this `FutureTaskRunner`.
+   */
+  def minimumPoolSize: Int
+  
+  /** Sets the maximum allowable number of threads in this `FutureTaskRunner`.
+   */
+  def maximumPoolSize_=(size: Int): Unit
+  
+  /** Gets the maximum allowable number of threads in this `FutureTaskRunner`.
+   */
+  def maximumPoolSize: Int
+
+  
 }

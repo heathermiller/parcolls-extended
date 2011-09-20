@@ -30,6 +30,7 @@ import annotation.unchecked.uncheckedVariance
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
 import java.io.IOException
+import scala.concurrent.ManagedBlocker
 
 
 
@@ -195,6 +196,15 @@ self: ParIterableLike[T, Repr, Sequential] =>
     }
   }
 
+  def block(code: => Unit): Unit = {
+    val blocker = new ManagedBlocker { 
+      @volatile var isDone: Boolean = false
+      def block() = { code; isDone = true; isDone }
+      def isReleasable = isDone
+    }
+    tasks.managedBlock(blocker)
+  }
+  
   private def parallelismLevel = tasks.parallelismLevel
   
   def seq: Sequential

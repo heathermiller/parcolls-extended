@@ -10,7 +10,7 @@
 package scala.collection.parallel
 
 import scala.concurrent.FutureTaskRunner
-
+import scala.concurrent.ManagedBlocker
 
 abstract class ResizingFutureTaskRunnerTasks(runner: FutureTaskRunner)  extends Tasks {
 
@@ -73,7 +73,7 @@ abstract class ResizingFutureTaskRunnerTasks(runner: FutureTaskRunner)  extends 
       }
       this.notifyAll
     }
-}  
+  }  
 
   protected def newTaskImpl[R, Tp](b: Task[R, Tp]): TaskImpl[R, Tp]
   
@@ -113,7 +113,9 @@ abstract class ResizingFutureTaskRunnerTasks(runner: FutureTaskRunner)  extends 
   
   var environment: AnyRef = runner
   
-  def parallelismLevel = runner.minimumPoolSize  
+  def parallelismLevel = runner.minimumPoolSize
+  
+  def managedBlock(mb: ManagedBlocker) = runner.managedBlock(mb)
 }
 
 /* An implementation of tasks objects based on the Java thread pooling API. */
@@ -267,6 +269,7 @@ abstract class FutureTaskRunnerTaskImpl[R, +Tp](runner: FutureTaskRunner) extend
   def run = {
     compute
   }
+  
 }
 
 abstract class FutureTaskRunnerTasks(runner: FutureTaskRunner) extends Tasks {
@@ -302,6 +305,8 @@ abstract class FutureTaskRunnerTasks(runner: FutureTaskRunner) extends Tasks {
   def parallelismLevel =
     if (runner.minimumPoolSize == 0) Runtime.getRuntime().availableProcessors()
     else runner.minimumPoolSize
+  
+  def managedBlock(mb: ManagedBlocker) = runner.managedBlock(mb) 
   
 }
 

@@ -10,6 +10,7 @@
 package scala.collection.parallel
 
 import scala.concurrent.forkjoin._
+import scala.concurrent.ManagedBlocker
 
 /**
  * A trait describing objects that provide a fork/join pool.
@@ -83,6 +84,15 @@ abstract class ForkJoinTasks(runner: ForkJoinTaskRunner) extends Tasks with Havi
   }
   
   def parallelismLevel = forkJoinPool.getParallelism
+  
+  def managedBlock(mb: ManagedBlocker) = {
+    val javaManagedBlocker = new ForkJoinPool.ManagedBlocker{
+      def block() = mb.block()
+      def isReleasable = mb.isReleasable
+    }
+    // pass to the fork join pool's managedBlock
+    ForkJoinPool.managedBlock(javaManagedBlocker, true)
+  }  
   
 }
 

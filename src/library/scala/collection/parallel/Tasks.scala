@@ -11,6 +11,7 @@ package scala.collection.parallel
 
 import scala.util.control.Breaks._
 import scala.concurrent.FutureTaskRunner
+import scala.concurrent.ManagedBlocker
 
 import annotation.unchecked.uncheckedVariance
 
@@ -139,6 +140,9 @@ trait Tasks {
   
   /** Retrieves the parallelism level of the task execution environment. */
   def parallelismLevel: Int
+  
+  /** Submits a blocking operation to the underlying pool to maintain its parallelism level. The behavior of this method depends on how the underlying thread pool maintains its parallelism level. */
+  def managedBlock(mb: ManagedBlocker): Unit
   
 }
 

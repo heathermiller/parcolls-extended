@@ -23,10 +23,6 @@ trait FutureTaskRunner extends TaskRunner {
    * a lock or condition.
    */
   def managedBlock(blocker: ManagedBlocker): Unit
-
-  ///** Returns the target number of cores to utilize.
-  //*/
-  //def parallelism: Int
   
   /** Sets the minimum, or target number of threads in this `FutureTaskRunner`.
    */

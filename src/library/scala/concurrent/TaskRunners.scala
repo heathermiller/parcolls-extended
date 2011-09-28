@@ -12,7 +12,7 @@ import java.util.concurrent.{ThreadPoolExecutor, LinkedBlockingQueue, TimeUnit, 
 
 /** The `TaskRunners` object...
  *  
- *  @author Philipp Haller
+ *  @author Philipp Haller, Heather Miller
  */
 object TaskRunners {
 

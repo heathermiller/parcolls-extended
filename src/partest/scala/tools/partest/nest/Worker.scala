@@ -150,7 +150,10 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
   private def updateStatus(key: String, num: Int) = status(key) = num
   
   private def cleanup() {
-    toDelete foreach (_.deleteRecursively())
+    // keep output directories under debug
+    if (!isPartestDebug)
+      toDelete foreach (_.deleteRecursively())
+
     toDelete.clear()
   }
   sys addShutdownHook cleanup()
@@ -295,6 +298,16 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
     if (argString != "")
       NestUI.verbose("Found javaopts file '%s', using options: '%s'".format(argsFile, argString))
 
+    val testFullPath = {
+      val d = new File(logFile.getParentFile, fileBase)
+      if (d.isDirectory) d.getAbsolutePath
+      else {
+        val f = new File(logFile.getParentFile, fileBase + ".scala")
+        if (f.isFile) f.getAbsolutePath
+        else ""
+      }
+    }
+
     // Note! As this currently functions, JAVA_OPTS must precede argString
     // because when an option is repeated to java only the last one wins.
     // That means until now all the .javaopts files were being ignored because
@@ -305,10 +318,12 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
     // debug: java -Xss32k -Xss2m -Xms256M -Xmx1024M -classpath [...]
     val extras = if (isPartestDebug) List("-Dpartest.debug=true") else Nil
     val propertyOptions = List(
+      "-Dfile.encoding=UTF-8",
       "-Djava.library.path="+logFile.getParentFile.getAbsolutePath,
       "-Dpartest.output="+outDir.getAbsolutePath,
       "-Dpartest.lib="+LATEST_LIB,
       "-Dpartest.cwd="+outDir.getParent,
+      "-Dpartest.test-path="+testFullPath,
       "-Dpartest.testname="+fileBase,
       "-Djavacmd="+JAVACMD,
       "-Djavaccmd="+javacCmd,
@@ -386,7 +401,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
   def runTests(files: List[File])(topcont: Map[String, Int] => Unit) {
     val compileMgr = new CompileManager(fileManager)
     if (kind == "scalacheck") fileManager.CLASSPATH += File.pathSeparator + PathSettings.scalaCheck
-    
+
     filesRemaining = files
 
     // You don't default "succeeded" to true.
@@ -524,15 +539,15 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
       case "scalacheck" =>
         val succFn: (File, File) => Boolean = { (logFile, outDir) =>
           NestUI.verbose("compilation of "+file+" succeeded\n")
-          
-          val outURL    = outDir.getCanonicalFile.toURI.toURL
+
+          val outURL    = outDir.getAbsoluteFile.toURI.toURL
           val logWriter = new PrintStream(new FileOutputStream(logFile), true)
-          
+
           Output.withRedirected(logWriter) {
             // this classloader is test specific: its parent contains library classes and others
             ScalaClassLoader.fromURLs(List(outURL), params.scalaCheckParentClassLoader).run("Test", Nil)
           }
-          
+
           NestUI.verbose(file2String(logFile))
           // obviously this must be improved upon
           val lines = SFile(logFile).lines map (_.trim) filterNot (_ == "") toBuffer;
@@ -616,7 +631,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
 
               // create proper settings for the compiler
               val settings = new Settings(workerError)
-              settings.outdir.value = outDir.getCanonicalFile.getAbsolutePath
+              settings.outdir.value = outDir.getAbsoluteFile.getAbsolutePath
               settings.sourcepath.value = sourcepath
               settings.classpath.value = fileManager.CLASSPATH
               settings.Ybuildmanagerdebug.value = true
@@ -723,12 +738,12 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
 
             // run compiler in resident mode
             // $SCALAC -d "$os_dstbase".obj -Xresident -sourcepath . "$@"
-            val sourcedir  = logFile.getParentFile.getCanonicalFile
+            val sourcedir  = logFile.getParentFile.getAbsoluteFile
             val sourcepath = sourcedir.getAbsolutePath+File.separator
             NestUI.verbose("sourcepath: "+sourcepath)
 
             val argString =
-              "-d "+outDir.getCanonicalFile.getAbsolutePath+
+              "-d "+outDir.getAbsoluteFile.getPath+
               " -Xresident"+
               " -sourcepath "+sourcepath
             val argList = argString split ' ' toList
@@ -976,7 +991,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
 
       react {
         case Timeout(file) =>
-          updateStatus(file.getCanonicalPath, TestState.Timeout)
+          updateStatus(file.getAbsolutePath, TestState.Timeout)
           val swr = new StringWriter
           val wr = new PrintWriter(swr, true)
           printInfoStart(file, wr)
@@ -988,7 +1003,7 @@ class Worker(val fileManager: FileManager, params: TestRunParams) extends Actor 
           
         case Result(file, logs) =>
           val state = if (succeeded) TestState.Ok else TestState.Fail
-          updateStatus(file.getCanonicalPath, state)
+          updateStatus(file.getAbsolutePath, state)
           reportResult(
             state,
             logs.file,

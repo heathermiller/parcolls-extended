@@ -102,7 +102,7 @@ self =>
         val (fp, sp) = buff.splitAt(buff.length / 2)
         Seq(fp, sp) map { b => new ParHashSetIterator(b.iterator, b.length) with SCPI }
     }
-    def next: T = {
+    def next(): T = {
       i += 1
       triter.next
     }
@@ -125,7 +125,6 @@ self =>
   
 }
 
-
 /** $factoryInfo
  *  @define Coll immutable.ParHashSet
  *  @define coll immutable parallel hash set
@@ -138,7 +137,6 @@ object ParHashSet extends ParSetFactory[ParHashSet] {
   
   def fromTrie[T](t: HashSet[T]) = new ParHashSet(t)
 }
-
 
 private[immutable] abstract class HashSetCombiner[T]
 extends collection.parallel.BucketCombiner[T, ParHashSet[T], Any, HashSetCombiner[T]](HashSetCombiner.rootsize) {
@@ -228,52 +226,9 @@ extends collection.parallel.BucketCombiner[T, ParHashSet[T], Any, HashSetCombine
   
 }
 
-
 object HashSetCombiner {
   def apply[T] = new HashSetCombiner[T] {} // was: with EnvironmentPassingCombiner[T, ParHashSet[T]] {}
   
   private[immutable] val rootbits = 5
   private[immutable] val rootsize = 1 << 5
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

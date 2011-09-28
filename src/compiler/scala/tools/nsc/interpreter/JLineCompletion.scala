@@ -18,7 +18,7 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
   import global._
   import definitions.{ PredefModule, RootClass, AnyClass, AnyRefClass, ScalaPackage, JavaLangPackage }
   type ExecResult = Any
-  import intp.{ DBG, debugging, afterTyper }
+  import intp.{ debugging, afterTyper }
   
   // verbosity goes up with consecutive tabs
   private var verbosity: Int = 0
@@ -325,7 +325,7 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
     // This is jline's entry point for completion.
     override def complete(buf: String, cursor: Int): Candidates = {
       verbosity = if (isConsecutiveTabs(buf, cursor)) verbosity + 1 else 0
-      DBG("\ncomplete(%s, %d) last = (%s, %d), verbosity: %s".format(buf, cursor, lastBuf, lastCursor, verbosity))
+      repldbg("\ncomplete(%s, %d) last = (%s, %d), verbosity: %s".format(buf, cursor, lastBuf, lastCursor, verbosity))
 
       // we don't try lower priority completions unless higher ones return no results.
       def tryCompletion(p: Parsed, completionFunction: Parsed => List[String]): Option[Candidates] = {
@@ -338,7 +338,7 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
             val advance = commonPrefix(winners)
             lastCursor = p.position + advance.length
             lastBuf = (buf take p.position) + advance
-            DBG("tryCompletion(%s, _) lastBuf = %s, lastCursor = %s, p.position = %s".format(
+            repldbg("tryCompletion(%s, _) lastBuf = %s, lastCursor = %s, p.position = %s".format(
               p, lastBuf, lastCursor, p.position))
             p.position
           }
@@ -358,19 +358,31 @@ class JLineCompletion(val intp: IMain) extends Completion with CompletionOutput 
       def fileCompletion    = 
         if (!looksLikePath(buf)) None
         else tryCompletion(mkUndelimited, FileCompletion completionsFor _.buffer)
-      
-      /** This is the kickoff point for all manner of theoretically possible compiler
-       *  unhappiness - fault may be here or elsewhere, but we don't want to crash the
-       *  repl regardless.  Hopefully catching Exception is enough, but because the
-       *  compiler still throws some Errors it may not be.
+
+      def tryAll = (
+                  lastResultCompletion
+           orElse regularCompletion
+           orElse fileCompletion
+        getOrElse Candidates(cursor, Nil)
+      )
+
+      /**
+       *  This is the kickoff point for all manner of theoretically
+       *  possible compiler unhappiness. The fault may be here or
+       *  elsewhere, but we don't want to crash the repl regardless.
+       *  The compiler makes it impossible to avoid catching Throwable
+       *  with its unfortunate tendency to throw java.lang.Errors and
+       *  AssertionErrors as the hats drop. We take two swings at it
+       *  because there are some spots which like to throw an assertion
+       *  once, then work after that. Yeah, what can I say.
        */
-      try {
-        (lastResultCompletion orElse regularCompletion orElse fileCompletion) getOrElse Candidates(cursor, Nil)
-      }
-      catch {
-        case ex: Exception =>
-          DBG("Error: complete(%s, %s) provoked %s".format(buf, cursor, ex))
-          Candidates(cursor, List(" ", "<completion error: " + ex.getMessage +  ">"))
+      try tryAll
+      catch { case ex: Throwable =>
+        repldbg("Error: complete(%s, %s) provoked".format(buf, cursor) + ex)
+        Candidates(cursor,
+          if (isReplDebug) List("<error:" + ex + ">")
+          else Nil
+        )
       }
     }
   }

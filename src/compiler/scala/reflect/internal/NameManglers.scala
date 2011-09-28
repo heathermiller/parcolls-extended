@@ -19,8 +19,11 @@ trait NameManglers {
   
   trait NameManglingCommon {
     self: CommonNames =>
+    
+    val MODULE_SUFFIX_STRING = NameTransformer.MODULE_SUFFIX_STRING
+    val NAME_JOIN_STRING     = NameTransformer.NAME_JOIN_STRING
 
-    def flattenedName(segments: Name*): NameType = compactedString(segments mkString "$")
+    def flattenedName(segments: Name*): NameType = compactedString(segments mkString NAME_JOIN_STRING)
 
     /**
      * COMPACTIFY
@@ -66,14 +69,14 @@ trait NameManglers {
     self: nme.type =>    
     
     val IMPL_CLASS_SUFFIX             = "$class"
-    val SINGLETON_SUFFIX              = ".type"
     val LOCALDUMMY_PREFIX             = "<local "   // owner of local blocks
     val PROTECTED_PREFIX              = "protected$"
     val PROTECTED_SET_PREFIX          = PROTECTED_PREFIX + "set"
     val SELECTOR_DUMMY                = "<unapply-selector>"
     val SETTER_SUFFIX                 = encode("_=")
+    val SINGLETON_SUFFIX              = ".type"
     val SUPER_PREFIX_STRING           = "super$"
-    val TRAIT_SETTER_SEPARATOR_STRING = "$_setter_$"  
+    val TRAIT_SETTER_SEPARATOR_STRING = "$_setter_$"
   
     def isConstructorName(name: Name)       = name == CONSTRUCTOR || name == MIXIN_CONSTRUCTOR    
     def isExceptionResultName(name: Name)   = name startsWith EXCEPTION_RESULT_PREFIX
@@ -87,6 +90,7 @@ trait NameManglers {
     def isSetterName(name: Name)            = name endsWith SETTER_SUFFIX
     def isTraitSetterName(name: Name)       = isSetterName(name) && (name containsName TRAIT_SETTER_SEPARATOR_STRING)
     def isSingletonName(name: Name)         = name endsWith SINGLETON_SUFFIX
+    def isModuleName(name: Name)            = name endsWith MODULE_SUFFIX_STRING
 
     def isOpAssignmentName(name: Name) = name match {
       case raw.NE | raw.LE | raw.GE | EMPTY => false
@@ -94,13 +98,13 @@ trait NameManglers {
         name.endChar == '=' && name.startChar != '=' && isOperatorPart(name.startChar)
     }
 
-    /** The expanded setter name of `name' relative to this class `base` 
+    /** The expanded setter name of `name` relative to this class `base` 
      */
     def expandedSetterName(name: TermName, base: Symbol): TermName =
       expandedName(name, base, separator = TRAIT_SETTER_SEPARATOR_STRING)
 
-    /** If `name' is an expandedName name, the original name. 
-     *  Otherwise `name' itself.
+    /** If `name` is an expandedName name, the original name. 
+     *  Otherwise `name` itself.
      */
     def originalName(name: Name): Name = {
       var i = name.length
@@ -155,6 +159,13 @@ trait NameManglers {
       else name
     }
 
+    def stripModuleSuffix(name: Name): Name = (
+      if (isModuleName(name)) name stripEnd MODULE_SUFFIX_STRING else name
+    )
+    
+    /** Note that for performance reasons, stripEnd does not verify that the
+     *  suffix is actually the suffix specified.
+     */
     def dropSingletonName(name: Name): TypeName = name stripEnd SINGLETON_SUFFIX toTypeName
     def singletonName(name: Name): TypeName     = name append SINGLETON_SUFFIX toTypeName
     def implClassName(name: Name): TypeName     = name append IMPL_CLASS_SUFFIX toTypeName

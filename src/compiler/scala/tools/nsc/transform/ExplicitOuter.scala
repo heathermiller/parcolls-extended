@@ -28,7 +28,7 @@ abstract class ExplicitOuter extends InfoTransform
   import Debug.TRACE
 
   /** The following flags may be set by this phase: */
-  override def phaseNewFlags: Long = notPRIVATE | notPROTECTED | lateFINAL
+  override def phaseNewFlags: Long = notPROTECTED
 
   /** the name of the phase: */
   val phaseName: String = "explicitouter"
@@ -123,6 +123,8 @@ abstract class ExplicitOuter extends InfoTransform
    *      Remove protected flag from all members of traits.
    *    </li>
    *  </ol>
+   *  Note: this transformInfo need not be reflected as the JVM reflection already 
+   *  elides outer pointers.
    */
   def transformInfo(sym: Symbol, tp: Type): Type = tp match {
     case MethodType(params, restpe1) =>
@@ -130,7 +132,7 @@ abstract class ExplicitOuter extends InfoTransform
       if (sym.owner.isTrait && ((sym hasFlag (ACCESSOR | SUPERACCESSOR)) || sym.isModule)) { // 5 
         sym.makeNotPrivate(sym.owner)
       }
-      if (sym.owner.isTrait && sym.isProtected) sym setFlag notPROTECTED // 6
+      if (sym.owner.isTrait) sym setNotFlag PROTECTED // 6
       if (sym.isClassConstructor && isInner(sym.owner)) { // 1
         val p = sym.newValueParameter(sym.pos, "arg" + nme.OUTER)
                    .setInfo(sym.owner.outerClass.thisType)
@@ -148,7 +150,7 @@ abstract class ExplicitOuter extends InfoTransform
         val restpe = if (clazz.isTrait) clazz.outerClass.tpe else clazz.outerClass.thisType
         decls1 enter (clazz.newOuterAccessor(clazz.pos) setInfo MethodType(Nil, restpe))
         if (hasOuterField(clazz)) { //2
-          val access = if (clazz.isFinal) PRIVATE | LOCAL else PROTECTED
+          val access = if (clazz.isEffectivelyFinal) PrivateLocal else PROTECTED
           decls1 enter (
             clazz.newValue(clazz.pos, nme.OUTER_LOCAL)
             setFlag (SYNTHETIC | PARAMACCESSOR | access)
@@ -213,7 +215,7 @@ abstract class ExplicitOuter extends InfoTransform
       val outerFld =         
         if (outerAcc.owner == currentClass && 
             base.tpe =:= currentClass.thisType &&
-            outerAcc.owner.isFinal) 
+            outerAcc.owner.isEffectivelyFinal)
           outerField(currentClass) suchThat (_.owner == currentClass)
         else
           NoSymbol
@@ -358,13 +360,6 @@ abstract class ExplicitOuter extends InfoTransform
       }
     }
     
-    /** If FLAG is set on symbol, sets notFLAG (this exists in anticipation of generalizing). */
-    def setNotFlags(sym: Symbol, flags: Int*) {
-      for (f <- flags ; notFlag <- notFlagMap get f)
-        if (sym hasFlag f)
-          sym setFlag notFlag
-    }
-    
     def matchTranslation(tree: Match) = {
       val Match(selector, cases) = tree
       var nselector = transform(selector)
@@ -438,9 +433,10 @@ abstract class ExplicitOuter extends InfoTransform
     /** The main transformation method */
     override def transform(tree: Tree): Tree = {
       val sym = tree.symbol
-      if (sym != null && sym.isType)  //(9)
-        setNotFlags(sym, PRIVATE, PROTECTED)
-
+      if (sym != null && sym.isType) { //(9)
+        sym setNotFlag PRIVATE
+        sym setNotFlag PROTECTED
+      }
       tree match {
         case Template(parents, self, decls) =>
           val newDefs = new ListBuffer[Tree]
@@ -535,9 +531,5 @@ abstract class ExplicitOuter extends InfoTransform
 
   class Phase(prev: scala.tools.nsc.Phase) extends super.Phase(prev) {
     override val checkable = false
-    override def run() {
-      super.run
-      Pattern.clear()    // clear the cache
-    }
   }
 }

@@ -3,11 +3,9 @@
  * @author  Iulian Dragos
  */
 
-
 package scala.tools.nsc
 package backend.opt
 
-import scala.collection.mutable.{Map, HashMap}
 import scala.tools.nsc.backend.icode.analysis.LubException
 import scala.tools.nsc.symtab._
 
@@ -103,7 +101,7 @@ abstract class ClosureElimination extends SubComponent {
 
       for (bb <- linearizer.linearize(m)) {
         var info = cpp.in(bb)
-        if (settings.debug.value) log("Cpp info at entry to block " + bb + ": " + info)
+        debuglog("Cpp info at entry to block " + bb + ": " + info)
 
         for (i <- bb) {
           i match {
@@ -234,7 +232,7 @@ abstract class ClosureElimination extends SubComponent {
         while (t != Nil) {
           peep(b, h, t.head) match {
             case Some(newInstrs) =>
-              newInstructions = seen.reverse ::: newInstrs ::: t.tail;
+              newInstructions = seen reverse_::: newInstrs ::: t.tail
               redo = true
             case None =>
             	()

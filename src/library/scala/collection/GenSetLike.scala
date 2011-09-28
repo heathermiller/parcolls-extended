@@ -22,11 +22,11 @@ import annotation.bridge
  *
  *  A set is a collection that contains no duplicate elements.
  */
-private[collection] trait GenSetLike[A, +Repr]
-       extends GenIterableLike[A, Repr]
-          with (A => Boolean)
-          with Equals 
-          with Parallelizable[A, parallel.ParSet[A]] {
+trait GenSetLike[A, +Repr]
+extends GenIterableLike[A, Repr]
+   with (A => Boolean)
+   with Equals 
+   with Parallelizable[A, parallel.ParSet[A]] {
   
   def iterator: Iterator[A]
   def contains(elem: A): Boolean
@@ -143,6 +143,6 @@ private[collection] trait GenSetLike[A, +Repr]
   // Calling map on a set drops duplicates: any hashcode collisions would
   // then be dropped before they can be added.
   // Hash should be symmetric in set entries, but without trivial collisions.
-  override def hashCode() = util.MurmurHash.symmetricHash(seq, Set.hashSeed)
+  override def hashCode() = util.MurmurHash3.symmetricHash(seq, Set.hashSeed)
 
 }

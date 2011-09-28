@@ -125,7 +125,7 @@ self =>
    *  @param elems     the collection containing the added elements.
    *  @return a new $coll with the given elements added.
    */
-  def ++ (elems: GenTraversableOnce[A]): This = newBuilder ++= seq ++= elems.seq result
+  def ++ (elems: GenTraversableOnce[A]): This = (repr /: elems.seq)(_ + _)
 
   @bridge
   def ++ (elems: TraversableOnce[A]): This = ++ (elems: GenTraversableOnce[A])
@@ -143,15 +143,6 @@ self =>
    *  @return `true` if there is no element in the set, `false` otherwise.
    */
   override def isEmpty: Boolean = size == 0
-
-  /**  This method is an alias for `intersect`. 
-   *  It computes an intersection with set `that`.
-   *  It removes all the elements that are not present in `that`.
-   *
-   *  @param that the set to intersect with
-   */
-  @deprecated("use & instead", "2.8.0")
-  def ** (that: Set[A]): This = &(that)
 
   /** Computes the union between of set and another set.
    *
@@ -222,7 +213,7 @@ self =>
     idxs(len) = elms.size
 
     def hasNext = _hasNext
-    def next: This = {
+    def next(): This = {
       if (!hasNext) Iterator.empty.next
 
       val buf = self.newBuilder

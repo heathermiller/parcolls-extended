@@ -8,12 +8,11 @@ package scala.tools.nsc
 package matching
 
 import PartialFunction._
-import scala.collection.{ mutable, immutable }
+import scala.collection.{ mutable }
 import util.Position
 import transform.ExplicitOuter
 import symtab.Flags
 import mutable.ListBuffer
-import immutable.IntMap
 import annotation.elidable
 
 trait ParallelMatching extends ast.TreeDSL
@@ -25,7 +24,7 @@ trait ParallelMatching extends ast.TreeDSL
   self: ExplicitOuter =>
 
   import global.{ typer => _, _ }
-  import definitions.{ AnyRefClass, NothingClass, IntClass, BooleanClass, getProductArgs, productProj }
+  import definitions.{ AnyRefClass, NothingClass, IntClass, BooleanClass, SomeClass, OptionClass, getProductArgs, productProj }
   import CODE._
   import Types._
   import Debug._
@@ -43,17 +42,19 @@ trait ParallelMatching extends ast.TreeDSL
     lazy val (rows, targets)                    = expand(roots, cases).unzip
     lazy val expansion: Rep                     = make(roots, rows)
 
-    private val shortCuts = mutable.HashMap[Int, Symbol]()
+    private val shortCuts = perRunCaches.newMap[Int, Symbol]()
 
     final def createShortCut(theLabel: Symbol): Int = {
       val key = shortCuts.size + 1
       shortCuts(key) = theLabel
       -key
     }
-    def createLabelDef(prefix: String, params: List[Symbol] = Nil, tpe: Type = matchResultType) = {
-      val labelSym = owner.newLabel(owner.pos, cunit.freshTermName(prefix)) setInfo MethodType(params, tpe)
+    def createLabelDef(namePrefix: String, body: Tree, params: List[Symbol] = Nil, restpe: Type = matchResultType) = {
+      val labelName = cunit.freshTermName(namePrefix)
+      val labelSym  = owner.newLabel(owner.pos, labelName)
+      val labelInfo = MethodType(params, restpe)
 
-      (body: Tree) => LabelDef(labelSym, params, body setType tpe)
+      LabelDef(labelSym setInfo labelInfo, params, body setType restpe)
     }
 
     /** This is the recursively focal point for translating the current
@@ -297,7 +298,7 @@ trait ParallelMatching extends ast.TreeDSL
         literals.zipWithIndex map {
           case (lit, index) =>
             val tag  = lit.intValue          
-            (tag -> index, tag -> lit.deepBoundVariables)
+            (tag -> index, tag -> lit.boundVariables)
         } unzip
       )
       def literalMap = litPairs groupBy (_._1) map {
@@ -310,7 +311,7 @@ trait ParallelMatching extends ast.TreeDSL
           val r       = remake(newRows ++ defaultRows, includeScrut = false)
           val r2      = make(r.tvars, r.rows map (x => x rebind bindVars(tag, x.subst)))
 
-          CASE(Literal(tag)) ==> r2.toTree
+          CASE(Literal(Constant(tag))) ==> r2.toTree
         }
       
       lazy val defaultTree = remake(defaultRows, includeScrut = false).toTree
@@ -354,23 +355,26 @@ trait ParallelMatching extends ast.TreeDSL
       lazy val unapplyResult: PatternVar =
         scrut.createVar(unMethod.tpe, Apply(unTarget, scrut.id :: trailing) setType _.tpe)
 
-      lazy val cond: Tree =
-        if (unapplyResult.tpe.isBoolean) ID(unapplyResult.valsym)
-        else unapplyResult.valsym IS_DEFINED
+      lazy val cond: Tree = unapplyResult.tpe.normalize match {
+        case TypeRef(_, BooleanClass, _)  => unapplyResult.ident
+        case TypeRef(_, SomeClass, _)     => TRUE
+        case _                            => NOT(unapplyResult.ident DOT nme.isEmpty)
+      }
 
       lazy val failure = 
         mkFail(zipped.tail filterNot (x => SameUnapplyPattern(x._1)) map { case (pat, r) => r insert pat })
-      
+
       private def doSuccess: (List[PatternVar], List[PatternVar], List[Row]) = {
         // pattern variable for the unapply result of Some(x).get
-        lazy val pv = scrut.createVar(
-          unMethod.tpe typeArgs 0,
-          _ => fn(ID(unapplyResult.lhs), nme.get)
-        )
+        def unMethodTypeArg = unMethod.tpe.baseType(OptionClass).typeArgs match {
+          case Nil      => log("No type argument for unapply result! " + unMethod.tpe) ; NoType
+          case arg :: _ => arg
+        }
+        lazy val pv = scrut.createVar(unMethodTypeArg, _ => fn(ID(unapplyResult.lhs), nme.get))
         def tuple = pv.lhs
 
         // at this point it's Some[T1,T2...]
-        lazy val tpes  = getProductArgs(tuple.tpe).get
+        lazy val tpes  = getProductArgs(tuple.tpe)
       
         // one pattern variable per tuple element
         lazy val tuplePVs =
@@ -510,7 +514,7 @@ trait ParallelMatching extends ast.TreeDSL
           case PseudoType(o)        => o
         }      
       private lazy val labelDef =
-        createLabelDef("fail%")(remake((rest.rows.tail, pmatch.tail).zipped map (_ insert _)).toTree)
+        createLabelDef("fail%", remake((rest.rows.tail, pmatch.tail).zipped map (_ insert _)).toTree)
       
       lazy val cond       = handleOuter(rhs MEMBER_== scrut.id)
       lazy val successOne = rest.rows.head.insert2(List(NoPattern), head.boundVariables, scrut.sym)
@@ -665,16 +669,20 @@ trait ParallelMatching extends ast.TreeDSL
       def unreached                 = referenceCount == 0
       def shouldInline(sym: Symbol) = referenceCount == 1 && label.exists(_.symbol == sym)
       
-      protected def maybeCast(lhs: Symbol, rhs: Symbol)(tree: Tree) = {
-        if (rhs.tpe <:< lhs.tpe) tree
-        else tree AS lhs.tpe
-      }
+      // Creates a simple Ident if the symbol's type conforms to
+      // the val definition's type, or a casted Ident if not.
+      private def newValIdent(lhs: Symbol, rhs: Symbol) =
+        if (rhs.tpe <:< lhs.tpe) Ident(rhs)
+        else Ident(rhs) AS lhs.tpe
       
       protected def newValDefinition(lhs: Symbol, rhs: Symbol) =
-        VAL(lhs) === maybeCast(lhs, rhs)(Ident(rhs))
+        typer typedValDef ValDef(lhs, newValIdent(lhs, rhs))
 
       protected def newValReference(lhs: Symbol, rhs: Symbol) =
-        maybeCast(lhs, rhs)(Ident(rhs))
+        typer typed newValIdent(lhs, rhs)
+
+      protected def valDefsFor(subst: Map[Symbol, Symbol]) = mapSubst(subst)(newValDefinition)
+      protected def identsFor(subst: Map[Symbol, Symbol])  = mapSubst(subst)(newValReference)
       
       protected def mapSubst[T](subst: Map[Symbol, Symbol])(f: (Symbol, Symbol) => T): List[T] =
         params flatMap { lhs =>
@@ -685,12 +693,6 @@ trait ParallelMatching extends ast.TreeDSL
             None
           }
         }
-
-      protected def valDefsFor(subst: Map[Symbol, Symbol]) =
-        mapSubst(subst)(typer typedValDef newValDefinition(_, _))
-
-      protected def identsFor(subst: Map[Symbol, Symbol]) =
-        mapSubst(subst)(typer typed newValReference(_, _))
 
       // typer is not able to digest a body of type Nothing being assigned result type Unit
       protected def caseResultType =
@@ -708,7 +710,7 @@ trait ParallelMatching extends ast.TreeDSL
       traceCategory("Final State", "(%s) => %s", paramsString, body)
       def label = Some(labelDef)
       
-      private lazy val labelDef = createLabelDef("body%" + bx, params, caseResultType)(body)
+      private lazy val labelDef = createLabelDef("body%" + bx, body, params, caseResultType)
 
       protected def applyBindingsImpl(subst: Map[Symbol, Symbol]) = {
         val tree = 
@@ -834,7 +836,7 @@ trait ParallelMatching extends ast.TreeDSL
       typer typed {
         tpe match {
           case ConstantType(Constant(null)) if isRef  => scrutTree OBJ_EQ NULL
-          case ConstantType(Constant(value))          => scrutTree MEMBER_== Literal(value)
+          case ConstantType(const)                    => scrutTree MEMBER_== Literal(const)
           case SingleType(NoPrefix, sym)              => genEquals(sym)
           case SingleType(pre, sym) if sym.isStable   => genEquals(sym)
           case ThisType(sym) if sym.isModule          => genEquals(sym)

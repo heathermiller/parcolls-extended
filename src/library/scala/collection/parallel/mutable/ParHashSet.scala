@@ -10,7 +10,6 @@ package scala.collection.parallel
 package mutable
 
 import collection.generic._
-import collection.mutable.HashSet
 import collection.mutable.FlatHashTable
 import collection.parallel.Combiner
 import collection.parallel.Task
@@ -53,7 +52,7 @@ extends ParSet[T]
   
   def clear() = clearTable()
   
-  override def seq = new HashSet(hashTableContents)
+  override def seq = new collection.mutable.HashSet(hashTableContents)
   
   def +=(elem: T) = {
     addEntry(elem)
@@ -183,6 +182,8 @@ with collection.mutable.FlatHashTable.HashUtils[T] {
     threshold = FlatHashTable.newThreshold(_loadFactor, table.length)
     sizeMapInit(table.length)
     
+    override def toString = "AFHT(%s)".format(table.length)
+    
     def tableLength = table.length
     
     def setSize(sz: Int) = tableSize = sz
@@ -199,7 +200,7 @@ with collection.mutable.FlatHashTable.HashUtils[T] {
      *  the table will try to add the element in such a position if possible. Collisions are resolved
      *  using linear hashing, so the element may actually have to be added to a position
      *  that follows the specified one. In the case that the first unoccupied position
-     *  comes after `comesBefore`, the element is not added and the method simply returns `-1`,
+     *  comes after `comesBefore`, the element is not added and the method simply returns -1,
      *  indicating that it couldn't add the element in a position that comes before the
      *  specified one.
      *  If the element is already present in the hash table, it is not added, and this method

@@ -12,14 +12,15 @@ package settings
 abstract class MutableSettings extends AbsSettings {
   
   type Setting <: SettingValue
- 
+
   // basically this is a value which remembers if it's been modified
   trait SettingValue extends AbsSettingValue {
-    protected var v: T
+    protected var v: T = _
     protected var setByUser: Boolean = false
-    def postSetHook(): Unit
-    
-    def isDefault: Boolean = !setByUser
+
+    def postSetHook(): Unit = ()
+    def isDefault = !setByUser
+    def isSetByUser = setByUser
     def value: T = v
     def value_=(arg: T) = {
       setByUser = true
@@ -27,7 +28,9 @@ abstract class MutableSettings extends AbsSettings {
       postSetHook()
     }
   }
-    
+
+  def overrideObjects: SettingValue { type T = Boolean }
+  def printtypes: SettingValue { type T = Boolean }
   def debug: SettingValue { type T = Boolean }
   def YdepMethTpes: SettingValue { type T = Boolean }
   def Ynotnull: SettingValue { type T = Boolean }
@@ -35,7 +38,6 @@ abstract class MutableSettings extends AbsSettings {
   def verbose: SettingValue { type T = Boolean }
   def uniqid: SettingValue { type T = Boolean }
   def Xprintpos: SettingValue { type T = Boolean }
-  def printtypes: SettingValue { type T = Boolean }
   def Yrecursion: SettingValue { type T = Int }
   def maxClassfileName: SettingValue { type T = Int }
 }

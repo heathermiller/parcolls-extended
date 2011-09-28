@@ -7,7 +7,6 @@ package scala.reflect
 package internal
 
 import Flags._
-import util.HashSet
 
 /** This class ...
  *
@@ -15,10 +14,12 @@ import util.HashSet
  *  @version 1.0
  */
 abstract class TreeInfo {
-  val trees: SymbolTable
-  import trees._
-  import definitions.ThrowableClass
+  val global: SymbolTable
 
+  import global._ 
+  import definitions.{ isVarArgsList, ThrowableClass }
+
+  /* Does not seem to be used. Not sure what it does anyway.
   def isOwnerDefinition(tree: Tree): Boolean = tree match {
     case PackageDef(_, _)
        | ClassDef(_, _, _, _)
@@ -27,14 +28,15 @@ abstract class TreeInfo {
        | Import(_, _) => true
     case _ => false
   }
+*/
+  
+  // def isDefinition(tree: Tree): Boolean = tree.isDef
 
-  def isDefinition(tree: Tree): Boolean = tree.isDef
-
-  def isDeclaration(tree: Tree): Boolean = tree match {
-    case DefDef(_, _, _, _, _, EmptyTree)
-       | ValDef(_, _, _, EmptyTree)
-       | TypeDef(_, _, _, _) => true
-    case _ => false
+  /** Is tree a declaration or type definition? 
+   */
+  def isDeclarationOrTypeDef(tree: Tree): Boolean = tree match {
+    case x: ValOrDefDef   => x.rhs eq EmptyTree
+    case _                => tree.isInstanceOf[TypeDef]
   }
 
   /** Is tree legal as a member definition of an interface?
@@ -45,7 +47,6 @@ abstract class TreeInfo {
     case TypeDef(_, _, _, _)           => true
     case DefDef(mods, _, _, _, _, __)  => mods.isDeferred
     case ValDef(mods, _, _, _)         => mods.isDeferred
-    case DocDef(_, definition)         => isInterfaceMember(definition)
     case _ => false
   }
 
@@ -60,13 +61,15 @@ abstract class TreeInfo {
       true
     case ValDef(mods, _, _, rhs) =>
       !mods.isMutable && isPureExpr(rhs)
-    case DocDef(_, definition) =>
-      isPureDef(definition)
     case _ =>
       false
   }
 
   /** Is tree a stable and pure expression?
+   *  !!! Clarification on what is meant by "pure" here would be appreciated.
+   *  This implementation allows both modules and lazy vals, which are pure in
+   *  the sense that they always return the same result, but which are also
+   *  side effecting.  So for now, "pure" != "not side effecting".
    */
   def isPureExpr(tree: Tree): Boolean = tree match {
     case EmptyTree
@@ -76,6 +79,10 @@ abstract class TreeInfo {
       true
     case Ident(_) =>
       tree.symbol.isStable
+    // this case is mostly to allow expressions like -5 and +7, but any
+    // member of an anyval should be safely pure
+    case Select(Literal(const), name) =>
+      const.isAnyVal && (const.tpe.member(name) != NoSymbol)
     case Select(qual, _) =>
       tree.symbol.isStable && isPureExpr(qual)
     case TypeApply(fn, _) =>
@@ -95,12 +102,72 @@ abstract class TreeInfo {
       false
   }
 
-  def mayBeVarGetter(sym: Symbol) = sym.info match {
-    case NullaryMethodType(_)  => sym.owner.isClass && !sym.isStable
-    case mt @ MethodType(_, _) => mt.isImplicit && sym.owner.isClass && !sym.isStable
-    case _                     => false
+  def zipMethodParamsAndArgs(params: List[Symbol], args: List[Tree]): List[(Symbol, Tree)] = {
+    val plen   = params.length
+    val alen   = args.length
+    def fail() = {
+      global.debugwarn(
+        "Mismatch trying to zip method parameters and argument list:\n" +
+        "  params = " + params + "\n" +
+        "    args = " + args + "\n"
+      )
+      params zip args
+    }
+
+    if (plen == alen) params zip args
+    else if (params.isEmpty) fail
+    else if (isVarArgsList(params)) {
+      val plenInit = plen - 1
+      if (alen == plenInit) {
+        if (alen == 0) Nil        // avoid calling mismatched zip
+        else params.init zip args
+      }
+      else if (alen < plenInit) fail
+      else {
+        val front = params.init zip (args take plenInit)
+        val back  = args drop plenInit map (a => (params.last, a))
+        front ++ back
+      }
+    }
+    else fail
   }
 
+  /**
+   * Selects the correct parameter list when there are nested applications.
+   * Given Apply(fn, args), args might correspond to any of fn.symbol's parameter
+   * lists.  To choose the correct one before uncurry, we have to unwrap any
+   * applies: for instance Apply(fn @ Apply(Apply(_, _), _), args) implies args
+   * correspond to the third parameter list.
+   *
+   * Also accounts for varargs.
+   */
+  def zipMethodParamsAndArgs(t: Tree): List[(Symbol, Tree)] = t match {
+    case Apply(fn, args) =>
+      val depth  = applyDepth(fn)
+      // There could be applies which go beyond the parameter list(s),
+      // being applied to the result of the method call.
+      // !!! Note that this still doesn't seem correct, although it should
+      // be closer than what it replaced.
+      val params = (
+        if (depth < fn.symbol.paramss.size) fn.symbol.paramss(depth)
+        else if (fn.symbol.paramss.isEmpty) Nil
+        else fn.symbol.paramss.last
+      )
+      zipMethodParamsAndArgs(params, args)
+    case _  => Nil
+  }
+
+  /** Is symbol potentially a getter of a variable?
+   */
+  def mayBeVarGetter(sym: Symbol): Boolean = sym.info match {
+    case NullaryMethodType(_)              => sym.owner.isClass && !sym.isStable
+    case PolyType(_, NullaryMethodType(_)) => sym.owner.isClass && !sym.isStable
+    case mt @ MethodType(_, _)             => mt.isImplicit && sym.owner.isClass && !sym.isStable
+    case _                                 => false
+  }
+
+  /** Is tree a mutable variable, or the getter of a mutable field?
+   */
   def isVariableOrGetter(tree: Tree) = {
     def sym       = tree.symbol
     def isVar     = sym.isVariable
@@ -117,7 +184,8 @@ abstract class TreeInfo {
     }
   }
 
-  /** Is tree a self constructor call?
+  /** Is tree a self constructor call this(...)? I.e. a call to a constructor of the
+   *  same object?
    */
   def isSelfConstrCall(tree: Tree): Boolean = methPart(tree) match {
     case Ident(nme.CONSTRUCTOR) 
@@ -125,28 +193,31 @@ abstract class TreeInfo {
     case _ => false
   }
 
+  /** Is tree a super constructor call?
+   */
   def isSuperConstrCall(tree: Tree): Boolean = methPart(tree) match {
     case Select(Super(_, _), nme.CONSTRUCTOR) => true
     case _ => false
   }
 
+  /** Is tree a self or super constructor call? */
   def isSelfOrSuperConstrCall(tree: Tree) =
     isSelfConstrCall(tree) || isSuperConstrCall(tree)
 
-  /** Is tree a variable pattern */
+  /** Is tree a variable pattern? */
   def isVarPattern(pat: Tree): Boolean = pat match {
     case _: BackQuotedIdent => false
     case x: Ident           => isVariableName(x.name)
     case _                  => false
   }
 
-  /** The first constructor definitions in `stats' */
+  /** The first constructor definitions in `stats` */
   def firstConstructor(stats: List[Tree]): Tree = stats find {
     case x: DefDef  => nme.isConstructorName(x.name)
     case _          => false
   } getOrElse EmptyTree
   
-  /** The arguments to the first constructor in `stats'. */
+  /** The arguments to the first constructor in `stats`. */
   def firstConstructorArgs(stats: List[Tree]): List[Tree] = firstConstructor(stats) match {
     case DefDef(_, _, _, args :: _, _, _) => args
     case _                                => Nil
@@ -172,20 +243,22 @@ abstract class TreeInfo {
     case _ => false
   }
 
-  /** Is tpt of the form T* ? */
+  /** Is tpt a vararg type of the form T* ? */
   def isRepeatedParamType(tpt: Tree) = tpt match {
     case TypeTree()                                                          => definitions.isRepeatedParamType(tpt.tpe)
     case AppliedTypeTree(Select(_, tpnme.REPEATED_PARAM_CLASS_NAME), _)      => true
     case AppliedTypeTree(Select(_, tpnme.JAVA_REPEATED_PARAM_CLASS_NAME), _) => true
     case _                                                                   => false
   }
-  /** The parameter ValDefs from a def of the form T*. */
+  
+  /** The parameter ValDefs of a method definition that have vararg types of the form T* 
+   */
   def repeatedParams(tree: Tree): List[ValDef] = tree match {
     case DefDef(_, _, _, vparamss, _, _)  => vparamss.flatten filter (vd => isRepeatedParamType(vd.tpt))
     case _                                => Nil
   }
 
-  /** Is tpt a by-name parameter type? */
+  /** Is tpt a by-name parameter type of the form => T? */
   def isByNameParamType(tpt: Tree) = tpt match {
     case TypeTree()                                                 => definitions.isByNameParamType(tpt.tpe)
     case AppliedTypeTree(Select(_, tpnme.BYNAME_PARAM_CLASS_NAME), _) => true
@@ -203,7 +276,7 @@ abstract class TreeInfo {
     ((first.isLower && first.isLetter) || first == '_') && !reserved(name)
   }
 
-  /** Is tree a this node which belongs to `enclClass'? */
+  /** Is tree a `this` node which belongs to `enclClass`? */
   def isSelf(tree: Tree, enclClass: Symbol): Boolean = tree match {
     case This(_) => tree.symbol == enclClass
     case _ => false
@@ -224,10 +297,12 @@ abstract class TreeInfo {
     case Typed(_, Ident(tpnme.WILDCARD_STAR)) => true
     case _                                  => false
   }
+  
+  /** Does this argument list end with an argument of the form <expr> : _* ? */
   def isWildcardStarArgList(trees: List[Tree]) =
     trees.nonEmpty && isWildcardStarArg(trees.last)
   
-  /** Is the argument a (possibly bound) _ arg?
+  /** Is the argument a wildcard argument of the form `_` or `x @ _`?
    */
   def isWildcardArg(tree: Tree): Boolean = unbind(tree) match {
     case Ident(nme.WILDCARD) => true
@@ -309,6 +384,15 @@ abstract class TreeInfo {
     case _                      => tree
   }
 
+  /** The depth of the nested applies: e.g. Apply(Apply(Apply(_, _), _), _)
+   *  has depth 3.  Continues through type applications (without counting them.)
+   */
+  def applyDepth(tree: Tree): Int = tree match {
+    case Apply(fn, _)           => 1 + applyDepth(fn)
+    case TypeApply(fn, _)       => applyDepth(fn)
+    case AppliedTypeTree(fn, _) => applyDepth(fn)
+    case _                      => 0
+  }
   def firstArgument(tree: Tree): Tree = tree match {
     case Apply(fn, args) => 
       val f = firstArgument(fn)
@@ -326,6 +410,18 @@ abstract class TreeInfo {
     case _                                                          => false
   }
 
+  /** Does list of trees start with a definition of 
+   *  a class of module with given name (ignoring imports)
+   */
+  def firstDefinesClassOrObject(trees: List[Tree], name: Name): Boolean = trees match {
+      case Import(_, _) :: xs               => firstDefinesClassOrObject(xs, name)
+      case Annotated(_, tree1) :: Nil       => firstDefinesClassOrObject(List(tree1), name)
+      case ModuleDef(_, `name`, _) :: Nil   => true
+      case ClassDef(_, `name`, _, _) :: Nil => true
+      case _                                => false
+    }
+   
+   
   /** Is this file the body of a compilation unit which should not
    *  have Predef imported?
    */
@@ -336,17 +432,10 @@ abstract class TreeInfo {
       case Import(expr, _) :: rest   => isPredefExpr(expr) || containsLeadingPredefImport(rest)
       case _                         => false
     }
-    def isImplDef(trees: List[Tree], name: Name): Boolean = trees match {
-      case Import(_, _) :: xs               => isImplDef(xs, name)
-      case DocDef(_, tree1) :: Nil          => isImplDef(List(tree1), name)
-      case Annotated(_, tree1) :: Nil       => isImplDef(List(tree1), name)
-      case ModuleDef(_, `name`, _) :: Nil   => true
-      case ClassDef(_, `name`, _, _) :: Nil => true
-      case _                                => false
-    }
+    
     // Compilation unit is class or object 'name' in package 'scala'
     def isUnitInScala(tree: Tree, name: Name) = tree match {
-      case PackageDef(Ident(nme.scala_), defs) => isImplDef(defs, name)
+      case PackageDef(Ident(nme.scala_), defs) => firstDefinesClassOrObject(defs, name)
       case _                                   => false
     }
     
@@ -366,8 +455,9 @@ abstract class TreeInfo {
     case _ => false
   }
   
-  /** Some handy extractors for spotting true and false expressions
-   *  through the haze of braces.
+  /** Some handy extractors for spotting trees through the
+   *  the haze of irrelevant braces: i.e. Block(Nil, SomeTree)
+   *  should not keep us from seeing SomeTree.
    */
   abstract class SeeThroughBlocks[T] {
     protected def unapplyImpl(x: Tree): T
@@ -377,9 +467,21 @@ abstract class TreeInfo {
     }
   }
   object IsTrue extends SeeThroughBlocks[Boolean] {
-    protected def unapplyImpl(x: Tree): Boolean = x equalsStructure Literal(Constant(true))
+    protected def unapplyImpl(x: Tree): Boolean = x match {
+      case Literal(Constant(true)) => true
+      case _                       => false
+    }
   }
   object IsFalse extends SeeThroughBlocks[Boolean] {
-    protected def unapplyImpl(x: Tree): Boolean = x equalsStructure Literal(Constant(false))
+    protected def unapplyImpl(x: Tree): Boolean = x match {
+      case Literal(Constant(false)) => true
+      case _                        => false
+    }
+  }
+  object IsIf extends SeeThroughBlocks[Option[(Tree, Tree, Tree)]] {
+    protected def unapplyImpl(x: Tree) = x match {
+      case If(cond, thenp, elsep) => Some((cond, thenp, elsep))
+      case _                      => None
+    }
   }
 }

@@ -330,7 +330,7 @@ class RefinedBuildManager(val settings: Settings) extends Changes with BuildMana
 
   /** Update the map of definitions per source file */
   private def updateDefinitions(files: Set[AbstractFile]) {
-    for (src <- files; val localDefs = compiler.dependencyAnalysis.definitions(src)) {
+    for (src <- files; localDefs = compiler.dependencyAnalysis.definitions(src)) {
       definitions(src) = (localDefs map (s => {
         this.classes += s.fullName -> src
         SymWithHistory(
@@ -352,7 +352,7 @@ class RefinedBuildManager(val settings: Settings) extends Changes with BuildMana
     success
   }
   
-  /** Save dependency information to `file'. */
+  /** Save dependency information to `file`. */
   def saveTo(file: AbstractFile, fromFile: AbstractFile => String) {
     compiler.dependencyAnalysis.dependenciesFile = file
     compiler.dependencyAnalysis.saveDependencies(fromFile)

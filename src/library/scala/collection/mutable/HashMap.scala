@@ -6,17 +6,11 @@
 **                          |/                                          **
 \*                                                                      */
 
-
-
 package scala.collection
 package mutable
 
 import generic._
-
-
 import scala.collection.parallel.mutable.ParHashMap
-
-
 
 /** This class implements mutable maps using a hashtable.
  *  
@@ -59,6 +53,14 @@ extends Map[A, B]
   
   override def par = new ParHashMap[A, B](hashTableContents)
   
+  // contains and apply overridden to avoid option allocations.
+  override def contains(key: A) = findEntry(key) != null
+  override def apply(key: A): B = {
+    val result = findEntry(key)
+    if (result == null) default(key)
+    else result.value
+  }
+
   def get(key: A): Option[B] = {
     val e = findEntry(key)
     if (e == null) None
@@ -104,16 +106,16 @@ extends Map[A, B]
   
   /* Override to avoid tuple allocation */
   override def keysIterator: Iterator[A] = new Iterator[A] {
-    val iter = entriesIterator
+    val iter    = entriesIterator
     def hasNext = iter.hasNext
-    def next() = iter.next.key
+    def next()  = iter.next.key
   }
   
   /* Override to avoid tuple allocation */
   override def valuesIterator: Iterator[B] = new Iterator[B] {
-    val iter = entriesIterator
+    val iter    = entriesIterator
     def hasNext = iter.hasNext
-    def next() = iter.next.value
+    def next()  = iter.next.value
   }
   
   /** Toggles whether a size map is used to track hash map statistics.

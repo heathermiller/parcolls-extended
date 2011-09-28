@@ -30,9 +30,19 @@ import annotation.bridge
  *  Sequences are special cases of iterable collections of class `Iterable`.
  *  Unlike iterables, sequences always have a defined order of elements.
  */
-private[collection] trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr] with Equals with Parallelizable[A, parallel.ParSeq[A]] {
+trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr] with Equals with Parallelizable[A, parallel.ParSeq[A]] {
   
   /** Selects an element by its index in the $coll.
+   *
+   * Example:
+   *
+   * {{{
+   *    scala> val x = LinkedList(1, 2, 3, 4, 5)
+   *    x: scala.collection.mutable.LinkedList[Int] = LinkedList(1, 2, 3, 4, 5)
+   *
+   *    scala> x(3)
+   *    res1: Int = 4
+   * }}}
    *
    *  @param  idx  The index to select.
    *  @return the element of this $coll at index `idx`, where `0` indicates the first element.
@@ -215,14 +225,13 @@ private[collection] trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr]
   
   /** Tests whether this $coll contains the given sequence at a given index. 
    * 
-   * If the both the receiver object, <code>this</code> and 
-   * the argument, <code>that</code> are infinite sequences 
-   * this method may not terminate.
+   * '''Note''': If the both the receiver object `this` and the argument
+   * `that` are infinite sequences this method may not terminate.
    * 
    * @param  that    the sequence to test
    * @param  offset  the index where the sequence is searched.
-   * @return `true` if the sequence `that` is contained in this $coll at index `offset`,
-   *         otherwise `false`. 
+   * @return `true` if the sequence `that` is contained in this $coll at
+   *         index `offset`, otherwise `false`. 
    */
   def startsWith[B](that: GenSeq[B], offset: Int): Boolean
   
@@ -263,7 +272,23 @@ private[collection] trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr]
    */
   def updated[B >: A, That](index: Int, elem: B)(implicit bf: CanBuildFrom[Repr, B, That]): That
   
-  /** Prepends an element to this $coll
+  /** A copy of the $coll with an element prepended.
+   *
+   * Note that :-ending operators are right associative (see example).
+   * Also, the original $coll is not modified, so you will want to capture the result.
+   *
+   *  Example:
+   *  {{{
+   *      scala> val x = LinkedList(1)
+   *      x: scala.collection.mutable.LinkedList[Int] = LinkedList(1)
+   *
+   *      scala> val y = 2 +: x
+   *      y: scala.collection.mutable.LinkedList[Int] = LinkedList(2, 1)
+   *
+   *      scala> println(x)
+   *      LinkedList(1)
+   *  }}}
+   *
    *  @param  elem   the prepended element
    *  @tparam B      the element type of the returned $coll.
    *  @tparam That   $thatinfo
@@ -276,7 +301,8 @@ private[collection] trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr]
    */
   def +:[B >: A, That](elem: B)(implicit bf: CanBuildFrom[Repr, B, That]): That
   
-  /** Appends an element to this $coll
+  /** A copy of this $coll with an element appended.
+   *
    *  $willNotTerminateInf
    *  @param  elem   the appended element
    *  @tparam B      the element type of the returned $coll.
@@ -287,10 +313,25 @@ private[collection] trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr]
    *  @usecase def :+(elem: A): $Coll[A]
    *  @return a new $coll consisting of
    *          all elements of this $coll followed by `elem`.
+   *  @example
+   *  {{{
+   *       scala> import scala.collection.mutable.LinkedList
+   *       import scala.collection.mutable.LinkedList
+   *
+   *       scala> val a = LinkedList(1)
+   *       a: scala.collection.mutable.LinkedList[Int] = LinkedList(1)
+   *
+   *       scala> val b = a :+ 2
+   *       b: scala.collection.mutable.LinkedList[Int] = LinkedList(1, 2)
+   *
+   *       scala> println(a)
+   *       LinkedList(1)
+   *  }}}
    */
   def :+[B >: A, That](elem: B)(implicit bf: CanBuildFrom[Repr, B, That]): That
   
-  /** Appends an element value to this $coll until a given target length is reached.
+  /** A copy of this $coll with an element value appended until a given target length is reached.
+   *
    *  @param   len   the target length
    *  @param   elem  the padding value 
    *  @tparam B      the element type of the returned $coll.
@@ -399,9 +440,14 @@ private[collection] trait GenSeqLike[+A, +Repr] extends GenIterableLike[A, Repr]
    *  elements of the $coll.
    */
   override def hashCode() = {
-    val h = new util.MurmurHash[A](Seq.hashSeed)
-    seq.foreach(h)
-    h.hash
+    import util.MurmurHash3._
+    var n = 0
+    var h = Seq.hashSeed
+    seq foreach { 
+      x => h = mix(h, x.##)
+      n += 1
+    }
+    finalizeHash(h, n)
   }
   
   /** The equals method for arbitrary sequences. Compares this sequence to

@@ -6,10 +6,9 @@ package scala.tools.nsc
 package interactive
 
 import java.io.{ PrintWriter, StringWriter, FileReader, FileWriter }
-import collection.mutable.{ArrayBuffer, ListBuffer, SynchronizedBuffer, HashMap}
-
 import scala.collection.mutable
-import mutable.{LinkedHashMap, SynchronizedMap,LinkedHashSet, SynchronizedSet}
+import collection.mutable.{ ArrayBuffer, ListBuffer, SynchronizedBuffer }
+import mutable.{LinkedHashMap, SynchronizedMap, SynchronizedSet}
 import scala.concurrent.SyncVar
 import scala.util.control.ControlThrowable
 import scala.tools.nsc.io.{ AbstractFile, LogReplay, Logger, NullLogger, Replayer }
@@ -30,6 +29,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
      with RangePositions
      with ContextTrees 
      with RichCompilationUnits 
+     with ScratchPadMaker
      with Picklers { 
 
   import definitions._
@@ -48,7 +48,6 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
     else NullLogger
 
   import log.logreplay
-  debugLog("interactive compiler from 20 Feb")
   debugLog("logger: " + log.getClass + " writing to " + (new java.io.File(logName)).getAbsolutePath)
   debugLog("classpath: "+classPath)
   
@@ -160,6 +159,25 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
   /** A list giving all files to be typechecked in the order they should be checked.
    */
   protected var allSources: List[SourceFile] = List()
+  
+  private var lastException: Option[Throwable] = None
+  
+  /** A list of files that crashed the compiler. They will be ignored during background
+   *  compilation until they are removed from this list.
+   */
+  private var ignoredFiles: Set[AbstractFile] = Set()
+  
+  /** Flush the buffer of sources that are ignored during background compilation. */
+  def clearIgnoredFiles() {
+    ignoredFiles = Set()
+  }
+  
+  /** Remove a crashed file from the ignore buffer. Background compilation will take it into account
+   *  and errors will be reported against it. */
+  def enableIgnoredFile(file: AbstractFile) {
+    ignoredFiles -= file
+    debugLog("Removed crashed file %s. Still in the ignored buffer: %s".format(file, ignoredFiles))
+  }
 
   /** The currently active typer run */
   private var currentTyperRun: TyperRun = _
@@ -205,7 +223,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
    */
   override def signalDone(context: Context, old: Tree, result: Tree) {
     if (interruptsEnabled && analyzer.lockedCount == 0) { 
-      if (context.unit != null && 
+      if (context.unit.exists &&
           result.pos.isOpaqueRange && 
           (result.pos includes context.unit.targetPos)) {
         var located = new TypedLocator(context.unit.targetPos) locateIn result
@@ -320,6 +338,22 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
           newTyperRun()
           minRunId = currentRunId
           demandNewCompilerRun()
+          
+        case Some(ShutdownReq) =>
+          scheduler.synchronized { // lock the work queue so no more items are posted while we clean it up
+            val units = scheduler.dequeueAll {
+              case item: WorkItem => Some(item.raiseMissing())
+              case _ => Some(())
+            }
+            debugLog("ShutdownReq: cleaning work queue (%d items)".format(units.size))
+            debugLog("Cleanup up responses (%d loadedType pending, %d parsedEntered pending)"
+                .format(waitLoadedTypeResponses.size, getParsedEnteredResponses.size))
+            checkNoResponsesOutstanding()
+  
+            log.flush(); 
+            throw ShutdownReq
+          }
+          
         case Some(ex: Throwable) => log.flush(); throw ex
         case _ =>
       }
@@ -408,7 +442,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
 
     // ensure all loaded units are parsed
     for (s <- allSources; unit <- getUnit(s)) {
-      checkForMoreWork(NoPosition)
+      // checkForMoreWork(NoPosition)  // disabled, as any work done here would be in an inconsistent state
       if (!unit.isUpToDate && unit.status != JustParsed) reset(unit) // reparse previously typechecked units.
       parseAndEnter(unit)
       serviceParsedEntered()
@@ -424,12 +458,33 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
     }
 
     // ensure all loaded units are typechecked
-    for (s <- allSources; unit <- getUnit(s)) {
-      if (!unit.isUpToDate) typeCheck(unit)
-      else debugLog("already up to date: "+unit)
-      for (r <- waitLoadedTypeResponses(unit.source))
-        r set unit.body
-      serviceParsedEntered()
+    for (s <- allSources; if !ignoredFiles(s.file); unit <- getUnit(s)) {
+      try {
+        if (!unit.isUpToDate)
+          if (unit.problems.isEmpty || !settings.YpresentationStrict.value)
+            typeCheck(unit)
+          else debugLog("%s has syntax errors. Skipped typechecking".format(unit))
+        else debugLog("already up to date: "+unit)
+        for (r <- waitLoadedTypeResponses(unit.source))
+          r set unit.body
+        serviceParsedEntered()
+      } catch {
+        case ex: FreshRunReq => throw ex // propagate a new run request
+        
+        case ex =>
+          println("[%s]: exception during background compile: ".format(unit.source) + ex)
+          ex.printStackTrace()
+          for (r <- waitLoadedTypeResponses(unit.source)) {
+            r.raise(ex)
+          }
+          serviceParsedEntered()
+
+          lastException = Some(ex)
+          ignoredFiles += unit.source.file
+          println("[%s] marking unit as crashed (crashedFiles: %s)".format(unit, ignoredFiles))
+          
+          reporter.error(unit.body.pos, "Presentation compiler crashed while type checking this file: %s".format(ex.toString()))
+      }
     }
         
     // clean out stale waiting responses
@@ -589,7 +644,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
     }
     sources foreach (removeUnitOf(_))
     minRunId = currentRunId
-    respond(response) ()
+    respond(response)(())
     demandNewCompilerRun()
   }
 
@@ -608,7 +663,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
       debugLog("at pos "+pos+" was found: "+tree.getClass+" "+tree.pos.show)
       tree match {
         case Import(expr, _) =>
-          debugLog("import found"+expr.tpe+" "+expr.tpe.members)
+          debugLog("import found"+expr.tpe+(if (expr.tpe == null) "" else " "+expr.tpe.members))
         case _ =>
       }
       if (stabilizedType(tree) ne null) {
@@ -630,7 +685,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
   }
 
   /** A fully attributed tree corresponding to the entire compilation unit  */
-  private def typedTree(source: SourceFile, forceReload: Boolean): Tree = {
+  private[interactive] def typedTree(source: SourceFile, forceReload: Boolean): Tree = {
     informIDE("typedTree " + source + " forceReload: " + forceReload)
     val unit = getOrCreateUnitOf(source)
     if (forceReload) reset(unit)
@@ -835,9 +890,11 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
     }
     
     val pre = stabilizedType(tree)
+     
     val ownerTpe = tree.tpe match {
       case analyzer.ImportType(expr) => expr.tpe
       case null => pre
+      case MethodType(List(), rtpe) => rtpe
       case _ => tree.tpe
     }
 
@@ -870,6 +927,8 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
         if (unit.isUpToDate) {
           debugLog("already typed"); 
           response set unit.body
+        } else if (ignoredFiles(source.file)) {
+          response.raise(lastException.getOrElse(CancelException))
         } else if (onSameThread) {
           getTypedTree(source, forceReload = false, response)
         } else {
@@ -912,6 +971,12 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
     }
   }
 
+  def getInstrumented(source: SourceFile, line: Int, response: Response[(String, Array[Char])]) {
+    respond(response) {
+      instrument(source, line)
+    }
+  }
+
   // ---------------- Helper classes ---------------------------
 
   /** A transformer that replaces tree `from` with tree `to` in a given tree */
@@ -942,10 +1007,7 @@ class Global(settings: Settings, reporter: Reporter, projectName: String = "")
      *  @return true iff typechecked correctly
      */
     private def applyPhase(phase: Phase, unit: CompilationUnit) {
-      val oldSource = reporter.getSource          
-      reporter.withSource(unit.source) {
-        atPhase(phase) { phase.asInstanceOf[GlobalPhase] applyPhase unit }
-      }
+      atPhase(phase) { phase.asInstanceOf[GlobalPhase] applyPhase unit }
     }
   }
   

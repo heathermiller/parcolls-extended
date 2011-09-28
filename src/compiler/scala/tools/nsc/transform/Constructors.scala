@@ -60,9 +60,9 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         parameterNamed(nme.getterName(acc.originalName))
 
       // The constructor parameter with given name. This means the parameter
-      // has given name, or starts with given name, and continues with a `$' afterwards.
+      // has given name, or starts with given name, and continues with a `$` afterwards.
       def parameterNamed(name: Name): Symbol = {
-        def matchesName(param: Symbol) = param.name == name || param.name.startsWith(name + "$")
+        def matchesName(param: Symbol) = param.name == name || param.name.startsWith(name + nme.NAME_JOIN_STRING)
         
         (constrParams filter matchesName) match {
           case Nil    => assert(false, name + " not in " + constrParams) ; null
@@ -103,7 +103,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         }
       }
 
-      // Move tree into constructor, take care of changing owner from `oldowner' to constructor symbol
+      // Move tree into constructor, take care of changing owner from `oldowner` to constructor symbol
       def intoConstructor(oldowner: Symbol, tree: Tree) =
         intoConstructorTransformer.transform(
           new ChangeOwnerTraverser(oldowner, constr.symbol)(tree))
@@ -114,7 +114,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         case _                     => false
       }
 
-      // Create an assignment to class field `to' with rhs `from'
+      // Create an assignment to class field `to` with rhs `from`
       def mkAssign(to: Symbol, from: Tree): Tree =
         localTyper.typedPos(to.pos) { Assign(Select(This(clazz), to), from) }
 
@@ -215,7 +215,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       //   the symbol is an outer accessor of a final class which does not override another outer accessor. )
       def maybeOmittable(sym: Symbol) = sym.owner == clazz && (
         sym.isParamAccessor && sym.isPrivateLocal ||
-        sym.isOuterAccessor && sym.owner.isFinal && sym.allOverriddenSymbols.isEmpty &&
+        sym.isOuterAccessor && sym.owner.isEffectivelyFinal && !sym.isOverridingSymbol &&
         !(clazz isSubClass DelayedInitClass)
       )
 
@@ -228,9 +228,9 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         override def traverse(tree: Tree) = {
           tree match {
             case DefDef(_, _, _, _, _, body) 
-            if (tree.symbol.isOuterAccessor && tree.symbol.owner == clazz && clazz.isFinal) =>
+            if (tree.symbol.isOuterAccessor && tree.symbol.owner == clazz && clazz.isEffectivelyFinal) =>
               log("outerAccessors += " + tree.symbol.fullName)
-              outerAccessors ::= (tree.symbol, body)
+              outerAccessors ::= ((tree.symbol, body))
             case Select(_, _) =>
               if (!mustbeKept(tree.symbol)) {
                 log("accessedSyms += " + tree.symbol.fullName)
@@ -310,7 +310,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
         }
 
         log("merging: " + originalStats.mkString("\n") + "\nwith\n" + specializedStats.mkString("\n"))
-        val res = for (s <- originalStats; val stat = s.duplicate) yield {
+        val res = for (s <- originalStats; stat = s.duplicate) yield {
           log("merge: looking at " + stat)
           val stat1 = stat match {
             case Assign(sel @ Select(This(_), field), _) =>
@@ -329,7 +329,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
 
             val stat2 = rewriteArrayUpdate(stat1)
             // statements coming from the original class need retyping in the current context
-            if (settings.debug.value) log("retyping " + stat2)
+            debuglog("retyping " + stat2)
             
             val d = new specializeTypes.Duplicator
             d.retyped(localTyper.context1.asInstanceOf[d.Context],
@@ -374,7 +374,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
                   Apply(gen.mkAttributedRef(specializedFlag), List()),
                   definitions.getMember(definitions.BooleanClass, nme.UNARY_!)),
                 List()),
-              Block(stats, Literal(())),
+              Block(stats, Literal(Constant())),
               EmptyTree)
 
           List(localTyper.typed(tree))
@@ -466,7 +466,7 @@ abstract class Constructors extends Transform with ast.TreeDSL {
             closureClass.setInfo(new ClassInfoType(closureParents, new Scope, closureClass))
 
             val outerField = closureClass.newValue(impl.pos, nme.OUTER)
-              .setFlag(PRIVATE | LOCAL | PARAMACCESSOR)
+              .setFlag(PrivateLocal | PARAMACCESSOR)
               .setInfo(clazz.tpe)
 
             val applyMethod = closureClass.newMethod(impl.pos, nme.apply)
@@ -556,6 +556,13 @@ abstract class Constructors extends Transform with ast.TreeDSL {
 
       var (uptoSuperStats, remainingConstrStats) = splitAtSuper(constrStatBuf.toList)
 
+      /** XXX This is not corect: remainingConstrStats.nonEmpty excludes too much,
+       *  but excluding it includes too much.  The constructor sequence being mimicked
+       *  needs to be reproduced with total fidelity.
+       *
+       *  See test case files/run/bug4680.scala, the output of which is wrong in many
+       *  particulars.
+       */
       val needsDelayedInit =
         (clazz isSubClass DelayedInitClass) /*&& !(defBuf exists isInitDef)*/ && remainingConstrStats.nonEmpty
 
@@ -578,11 +585,8 @@ abstract class Constructors extends Transform with ast.TreeDSL {
       defBuf ++= auxConstructorBuf
       
       // Unlink all fields that can be dropped from class scope
-      for (sym <- clazz.info.decls.toList) 
-        if (!mustbeKept(sym)) {
-          // println("dropping "+sym+sym.locationString)
-          clazz.info.decls unlink sym
-        }
+      for (sym <- clazz.info.decls ; if !mustbeKept(sym))
+        clazz.info.decls unlink sym
 
       // Eliminate all field definitions that can be dropped from template
       treeCopy.Template(impl, impl.parents, impl.self, 

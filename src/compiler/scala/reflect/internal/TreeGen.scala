@@ -23,6 +23,33 @@ abstract class TreeGen {
       mkAttributedRef(FunctionClass(argtpes.length))
     AppliedTypeTree(cls, argtpes :+ restpe)
   }
+  
+  /** A creator for method calls, e.g. fn[T1, T2, ...](v1, v2, ...)
+   *  There are a number of variations.
+   * 
+   *  @param    receiver    symbol of the method receiver
+   *  @param    methodName  name of the method to call
+   *  @param    targs       type arguments (if Nil, no TypeApply node will be generated)
+   *  @param    args        value arguments
+   *  @return               the newly created trees.
+   */  
+  def mkMethodCall(receiver: Symbol, methodName: Name, targs: List[Type], args: List[Tree]): Tree =
+    mkMethodCall(Select(mkAttributedRef(receiver), methodName), targs, args)
+  def mkMethodCall(method: Symbol, targs: List[Type], args: List[Tree]): Tree =
+    mkMethodCall(mkAttributedRef(method), targs, args)
+  def mkMethodCall(method: Symbol, args: List[Tree]): Tree =
+    mkMethodCall(method, Nil, args)
+  def mkMethodCall(target: Tree, args: List[Tree]): Tree =
+    mkMethodCall(target, Nil, args)
+  def mkMethodCall(receiver: Symbol, methodName: Name, args: List[Tree]): Tree =
+    mkMethodCall(receiver, methodName, Nil, args)
+  def mkMethodCall(receiver: Tree, method: Symbol, targs: List[Type], args: List[Tree]): Tree =
+    mkMethodCall(Select(receiver, method), targs, args)
+
+  def mkMethodCall(target: Tree, targs: List[Type], args: List[Tree]): Tree = {
+    val typeApplied = if (targs.isEmpty) target else TypeApply(target, targs map TypeTree)
+    Apply(typeApplied, args)
+  }
 
   /** Builds a reference to value whose type is given stable prefix.
    *  The type must be suitable for this.  For example, it
@@ -44,12 +71,12 @@ abstract class TreeGen {
       if (clazz.isEffectiveRoot) EmptyTree
       else mkAttributedThis(clazz)
     case SingleType(pre, sym) =>
-      applyIfNoArgs(mkAttributedStableRef(pre, sym))
+      mkApplyIfNeeded(mkAttributedStableRef(pre, sym))
     case TypeRef(pre, sym, args) =>
       if (sym.isRoot) {
         mkAttributedThis(sym)
       } else if (sym.isModuleClass) {
-        applyIfNoArgs(mkAttributedRef(pre, sym.sourceModule))
+        mkApplyIfNeeded(mkAttributedRef(pre, sym.sourceModule))
       } else if (sym.isModule || sym.isClass) {
         assert(phase.erasedTypes, tpe)
         mkAttributedThis(sym)
@@ -79,8 +106,8 @@ abstract class TreeGen {
   /** If this is a reference to a method with an empty
    *  parameter list, wrap it in an apply.
    */
-  private def applyIfNoArgs(qual: Tree) = qual.tpe match {
-    case MethodType(Nil, restpe) => Apply(qual, Nil) setType restpe
+  def mkApplyIfNeeded(qual: Tree) = qual.tpe match {
+    case MethodType(Nil, restpe) => atPos(qual.pos)(Apply(qual, Nil) setType restpe)
     case _                       => qual
   }
 
@@ -121,9 +148,9 @@ abstract class TreeGen {
       None
   }
 
-  /** Cast `tree' to type `pt' */
+  /** Cast `tree` to type `pt` */
   def mkCast(tree: Tree, pt: Type): Tree = {
-    if (settings.debug.value) log("casting " + tree + ":" + tree.tpe + " to " + pt)
+    debuglog("casting " + tree + ":" + tree.tpe + " to " + pt)
     assert(!tree.tpe.isInstanceOf[MethodType], tree)
     assert(!pt.typeSymbol.isPackageClass)
     assert(!pt.typeSymbol.isPackageObjectClass)
@@ -162,23 +189,20 @@ abstract class TreeGen {
     }
   }
   
-  private def mkTypeApply(value: Tree, tpe: Type, what: Symbol) =
-    Apply(
-      TypeApply(
-        mkAttributedSelect(value, what),
-        List(TypeTree(tpe.normalize))
-      ),
-      Nil
-    )
+  private def mkTypeApply(value: Tree, tpe: Type, what: Symbol, wrapInApply: Boolean) = {
+    val tapp = TypeApply(mkAttributedSelect(value, what), List(TypeTree(tpe.normalize)))
+    if (wrapInApply) Apply(tapp, List()) else tapp
+  }
+
   /** Builds an instance test with given value and type. */
-  def mkIsInstanceOf(value: Tree, tpe: Type, any: Boolean = true): Tree =
-    mkTypeApply(value, tpe, (if (any) Any_isInstanceOf else Object_isInstanceOf))
+  def mkIsInstanceOf(value: Tree, tpe: Type, any: Boolean = true, wrapInApply: Boolean = true): Tree =
+    mkTypeApply(value, tpe, (if (any) Any_isInstanceOf else Object_isInstanceOf), wrapInApply)
 
   /** Builds a cast with given value and type. */
-  def mkAsInstanceOf(value: Tree, tpe: Type, any: Boolean = true): Tree =
-    mkTypeApply(value, tpe, (if (any) Any_asInstanceOf else Object_asInstanceOf))
+  def mkAsInstanceOf(value: Tree, tpe: Type, any: Boolean = true, wrapInApply: Boolean = true): Tree =
+    mkTypeApply(value, tpe, (if (any) Any_asInstanceOf else Object_asInstanceOf), wrapInApply)
 
-  /** Cast `tree' to 'pt', unless tpe is a subtype of pt, or pt is Unit.  */
+  /** Cast `tree` to `pt`, unless tpe is a subtype of pt, or pt is Unit.  */
   def maybeMkAsInstanceOf(tree: Tree, pt: Type, tpe: Type, beforeRefChecks: Boolean = false): Tree =
     if ((pt == UnitClass.tpe) || (tpe <:< pt)) {
       log("no need to cast from " + tpe + " to " + pt)
@@ -191,8 +215,20 @@ abstract class TreeGen {
           mkAsInstanceOf(tree, pt)
       }
 
-  def mkClassOf(tp: Type): Tree = 
-    Literal(Constant(tp)) setType ConstantType(Constant(tp))// ClassType(tp)
+  /** Apparently we smuggle a Type around as a Literal(Constant(tp)) 
+   *  and the implementation of Constant#tpe is such that x.tpe becomes
+   *  ClassType(value.asInstanceOf[Type]), i.e. java.lang.Class[Type].
+   *  Can't find any docs on how/why it's done this way. See ticket
+   *  SI-490 for some interesting comments from lauri alanko suggesting
+   *  that the type given by classOf[T] is too strong and should be
+   *  weakened so as not to suggest that classOf[List[String]] is any
+   *  different from classOf[List[Int]].
+   *
+   *  !!! See deconstMap in Erasure for one bug this encoding has induced:
+   *  I would be very surprised if there aren't more.
+   */
+  def mkClassOf(tp: Type): Tree =
+    Literal(Constant(tp)) setType ConstantType(Constant(tp))
 
   /** Builds a list with given head and tail. */
   def mkNewCons(head: Tree, tail: Tree): Tree =
@@ -207,25 +243,23 @@ abstract class TreeGen {
    */
   def mkZero(tp: Type): Tree = {
     val tree = tp.typeSymbol match {
-      case UnitClass    => Literal(())
-      case BooleanClass => Literal(false)
-      case FloatClass   => Literal(0.0f)
-      case DoubleClass  => Literal(0.0d)
-      case ByteClass    => Literal(0.toByte)
-      case ShortClass   => Literal(0.toShort)
-      case IntClass     => Literal(0)
-      case LongClass    => Literal(0L)
-      case CharClass    => Literal(0.toChar)
-      case _            => 
-        if (NullClass.tpe <:< tp) Literal(null: Any)
-        else abort("Cannot determine zero for " + tp)
-    }    
+      case UnitClass    => Literal(Constant())
+      case BooleanClass => Literal(Constant(false))
+      case FloatClass   => Literal(Constant(0.0f))
+      case DoubleClass  => Literal(Constant(0.0d))
+      case ByteClass    => Literal(Constant(0.toByte))
+      case ShortClass   => Literal(Constant(0.toShort))
+      case IntClass     => Literal(Constant(0))
+      case LongClass    => Literal(Constant(0L))
+      case CharClass    => Literal(Constant(0.toChar))
+      case _            => Literal(Constant(null))
+    }
     tree setType tp
   }
 
   /** Builds a tuple */
   def mkTuple(elems: List[Tree]): Tree =
-    if (elems.isEmpty) Literal(())
+    if (elems.isEmpty) Literal(Constant())
     else Apply(
       Select(mkAttributedRef(TupleClass(elems.length).caseModule), nme.apply),
       elems)

@@ -141,10 +141,7 @@ self =>
    *  @param key the key
    *  @return    `true` if there is a binding for `key` in this map, `false` otherwise.
    */
-  def contains(key: A): Boolean = get(key) match {
-    case None => false
-    case Some(_) => true
-  }
+  def contains(key: A): Boolean = get(key).isDefined
 
   /** Tests whether this map contains a binding for a key. This method,
    *  which implements an abstract method of trait `PartialFunction`,
@@ -168,7 +165,7 @@ self =>
     def + (elem: A): Set[A] = (Set[A]() ++ this + elem).asInstanceOf[Set[A]] // !!! concrete overrides abstract problem
     def - (elem: A): Set[A] = (Set[A]() ++ this - elem).asInstanceOf[Set[A]] // !!! concrete overrides abstract problem
     override def size = self.size
-    override def foreach[C](f: A => C) = for ((k, v) <- self) f(k)
+    override def foreach[C](f: A => C) = self.keysIterator foreach f
   }
 
   /** Creates an iterator for all keys.
@@ -181,15 +178,16 @@ self =>
     def next() = iter.next._1
   }
 
-  /** Creates an iterator for all keys.
-   *
-   *  @return an iterator over all keys.
+  /** Collects all keys of this map in an iterable collection.
+   *  
+   *  @return the keys of this map as an iterable.
    */
   @migration(2, 8, "As of 2.8, keys returns Iterable[A] rather than Iterator[A].")
   def keys: Iterable[A] = keySet
 
-  /** Collects all values of this map in an iterable collection. 
-   * @return the values of this map as an iterable.
+  /** Collects all values of this map in an iterable collection.
+   *  
+   *  @return the values of this map as an iterable.
    */
   @migration(2, 8, "As of 2.8, values returns Iterable[B] rather than Iterator[B].")
   def values: Iterable[B] = new DefaultValuesIterable
@@ -199,7 +197,7 @@ self =>
   protected class DefaultValuesIterable extends Iterable[B] {
     def iterator = valuesIterator
     override def size = self.size
-    override def foreach[C](f: B => C) = for ((k, v) <- self) f(v)
+    override def foreach[C](f: B => C) = self.valuesIterator foreach f
   }
 
   /** Creates an iterator for all values in this map.
@@ -247,9 +245,6 @@ self =>
     override def contains(key: A) = self.contains(key)
     def get(key: A) = self.get(key).map(f)
   }
-
-  @deprecated("use `mapValues' instead", "2.8.0")
-  def mapElements[C](f: B => C) = mapValues(f)
 
   // The following 5 operations (updated, two times +, two times ++) should really be
   // generic, returning This[B]. We need better covariance support to express that though.

@@ -124,7 +124,7 @@ trait TraversableOnce[+A] extends GenTraversableOnce[A] {
    *  @param pf   the partial function
    *  @return     an option value containing pf applied to the first
    *              value for which it is defined, or `None` if none exists.
-   *  @example   `Seq("a", 1, 5L).collectFirst({ case x: Int => x*10 }) = Some(10)`
+   *  @example    `Seq("a", 1, 5L).collectFirst({ case x: Int => x*10 }) = Some(10)`
    */
   def collectFirst[B](pf: PartialFunction[A, B]): Option[B] = {
     for (x <- self.toIterator) { // make sure to use an iterator or `seq`
@@ -266,11 +266,23 @@ trait TraversableOnce[+A] extends GenTraversableOnce[A] {
 
   def mkString: String = mkString("")
 
-  /** Appends all elements of this $coll to a string builder using start, end,
-   *  and separator strings.
-   *  The written text begins with the string `start` and ends with the string
-   *  `end`. Inside, the string representations (w.r.t. the method `toString`)
+  /** Appends all elements of this $coll to a string builder using start, end, and separator strings.
+   *  The written text begins with the string `start` and ends with the string `end`.
+   *  Inside, the string representations (w.r.t. the method `toString`)
    *  of all elements of this $coll are separated by the string `sep`.
+   *
+   * Example:
+   *
+   * {{{
+   *      scala> val a = LinkedList(1,2,3,4)
+   *      a: scala.collection.mutable.LinkedList[Int] = LinkedList(1, 2, 3, 4)
+   *
+   *      scala> val b = new StringBuilder()
+   *      b: StringBuilder =
+   *
+   *      scala> a.addString(b, "LinkedList(", ", ", ")")
+   *      res1: StringBuilder = LinkedList(1, 2, 3, 4)
+   * }}}
    *
    *  @param  b    the string builder to which elements are appended.
    *  @param start the starting string.
@@ -297,10 +309,22 @@ trait TraversableOnce[+A] extends GenTraversableOnce[A] {
     b
   }
 
-  /** Appends all elements of this $coll to a string builder using a separator
-   *  string. The written text consists of the string representations (w.r.t.
-   *  the method `toString`) of all elements of this $coll, separated by the
-   *  string `sep`.
+  /** Appends all elements of this $coll to a string builder using a separator string.
+   *  The written text consists of the string representations (w.r.t. the method `toString`)
+   *  of all elements of this $coll, separated by the string `sep`.
+   *
+   * Example:
+   *
+   * {{{
+   *      scala> val a = LinkedList(1,2,3,4)
+   *      a: scala.collection.mutable.LinkedList[Int] = LinkedList(1, 2, 3, 4)
+   *
+   *      scala> val b = new StringBuilder()
+   *      b: StringBuilder =
+   *
+   *      scala> a.addString(b, ", ")
+   *      res0: StringBuilder = 1, 2, 3, 4
+   * }}}
    *
    *  @param  b    the string builder to which elements are appended.
    *  @param sep   the separator string.
@@ -312,6 +336,19 @@ trait TraversableOnce[+A] extends GenTraversableOnce[A] {
    *  The written text consists of the string representations (w.r.t. the method
    * `toString`) of all elements of this $coll without any separator string.
    *
+   * Example:
+   *
+   * {{{
+   *      scala> val a = LinkedList(1,2,3,4)
+   *      a: scala.collection.mutable.LinkedList[Int] = LinkedList(1, 2, 3, 4)
+   *
+   *      scala> val b = new StringBuilder()
+   *      b: StringBuilder =
+   *
+   *      scala> val h = a.addString(b)
+   *      b: StringBuilder = 1234
+   * }}}
+
    *  @param  b    the string builder to which elements are appended.
    *  @return      the string builder `b` to which elements were appended.
    */

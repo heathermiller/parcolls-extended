@@ -42,19 +42,19 @@ import scala.tools.nsc.ast._
 trait CompilerControl { self: Global =>
 
   import syntaxAnalyzer.UnitParser
- 
+
   type Response[T] = scala.tools.nsc.interactive.Response[T]
 
   /** The scheduler by which client and compiler communicate
    *  Must be initialized before starting compilerRunner
    */
   protected[interactive] val scheduler = new WorkScheduler
-  
+
   /** Return the compilation unit attached to a source file, or None
    *  if source is not loaded.
    */
   def getUnitOf(s: SourceFile): Option[RichCompilationUnit] = getUnit(s)
-  
+
   /** Run operation `op` on a compilation unit associated with given `source`.
    *  If source has a loaded compilation unit, this one is passed to `op`.
    *  Otherwise a new compilation unit is created, but not added to the set of loaded units.
@@ -68,7 +68,7 @@ trait CompilerControl { self: Global =>
    */
   @deprecated("use getUnitOf(s) or onUnitOf(s) instead")
   def unitOf(s: SourceFile): RichCompilationUnit = getOrCreateUnitOf(s)
-    
+
   /** The compilation unit corresponding to a position */
   @deprecated("use getUnitOf(pos.source) or onUnitOf(pos.source) instead")
   def unitOf(pos: Position): RichCompilationUnit = getOrCreateUnitOf(pos.source)
@@ -76,7 +76,7 @@ trait CompilerControl { self: Global =>
   /** Removes the CompilationUnit corresponding to the given SourceFile
    *  from consideration for recompilation.
    */ 
-  def removeUnitOf(s: SourceFile): Option[RichCompilationUnit] = {  toBeRemoved += s.file; unitOfFile get s.file }
+  def removeUnitOf(s: SourceFile): Option[RichCompilationUnit] = { toBeRemoved += s.file; unitOfFile get s.file }
 
   /** Returns the top level classes and objects that were deleted
    * in the editor since last time recentlyDeleted() was called.
@@ -91,7 +91,7 @@ trait CompilerControl { self: Global =>
    *  @pre Position must be loaded
    */
   def locateTree(pos: Position): Tree = onUnitOf(pos.source) { unit => new Locator(pos) locateIn unit.body }
-   
+
   /** Locates smallest context that encloses position as an optional value.
    */
   def locateContext(pos: Position): Option[Context] =
@@ -102,10 +102,10 @@ trait CompilerControl { self: Global =>
   def doLocateContext(pos: Position): Context = locateContext(pos) getOrElse {
     throw new FatalError("no context found for "+pos)
   }
-  
+
   private def postWorkItem(item: WorkItem) =
     if (item.onCompilerThread) item() else scheduler.postWorkItem(item)
-    
+
   /** Makes sure a set of compilation units is loaded and parsed.
    *  Returns () to syncvar `response` on completion.
    *  Afterwards a new background compiler run is started with
@@ -152,22 +152,24 @@ trait CompilerControl { self: Global =>
    */
   def askLinkPos(sym: Symbol, source: SourceFile, response: Response[Position]) = 
     postWorkItem(new AskLinkPosItem(sym, source, response))
-  
-  /** Sets sync var `response' to list of members that are visible
+
+  /** Sets sync var `response` to list of members that are visible
    *  as members of the tree enclosing `pos`, possibly reachable by an implicit.
    *  @pre  source is loaded
    */
   def askTypeCompletion(pos: Position, response: Response[List[Member]]) = 
     postWorkItem(new AskTypeCompletionItem(pos, response))
 
-  /** Sets sync var `response' to list of members that are visible
+  /** Sets sync var `response` to list of members that are visible
    *  as members of the scope enclosing `pos`.
    *  @pre  source is loaded
    */
   def askScopeCompletion(pos: Position, response: Response[List[Member]]) = 
     postWorkItem(new AskScopeCompletionItem(pos, response))
 
-  /** Asks to do unit corresponding to given source file on present and subsequent type checking passes */
+  /** Asks to do unit corresponding to given source file on present and subsequent type checking passes.
+   *  If the file is in the 'crashedFiles' ignore list it is removed and typechecked normally.
+   */
   def askToDoFirst(source: SourceFile) =
     postWorkItem(new AskToDoFirstItem(source))
 
@@ -181,7 +183,7 @@ trait CompilerControl { self: Global =>
    */
   def askLoadedTyped(source: SourceFile, response: Response[Tree]) =
     postWorkItem(new AskLoadedTypedItem(source, response))
-  
+
   /** If source if not yet loaded, get an outline view with askParseEntered.
    *  If source is loaded, wait for it to be typechecked.
    *  In both cases, set response to parsed (and possibly typechecked) tree.
@@ -192,7 +194,7 @@ trait CompilerControl { self: Global =>
       case None => askParsedEntered(source, false, response)
     }
   }
-  
+
   /** Set sync var `response` to the parse tree of `source` with all top-level symbols entered.
    *  @param source       The source file to be analyzed
    *  @param keepLoaded   If set to `true`, source file will be kept as a loaded unit afterwards.
@@ -203,6 +205,21 @@ trait CompilerControl { self: Global =>
   def askParsedEntered(source: SourceFile, keepLoaded: Boolean, response: Response[Tree]) =
     postWorkItem(new AskParsedEnteredItem(source, keepLoaded, response))
 
+  /** Set sync var `response` to a pair consisting of
+   *                  - the fully qualified name of the first top-level object definition in the file.
+   *                    or "" if there are no object definitions.
+   *                  - the text of the instrumented program which, when run, 
+   *                    prints its output and all defined values in a comment column.
+   *    
+   *  @param source       The source file to be analyzed
+   *  @param keepLoaded   If set to `true`, source file will be kept as a loaded unit afterwards.
+   *                      If keepLoaded is `false` the operation is run at low priority, only after
+   *                      everything is brought up to date in a regular type checker run.
+   *  @param response     The response.
+   */
+  def askInstrumented(source: SourceFile, line: Int, response: Response[(String, Array[Char])]) = 
+    postWorkItem(new AskInstrumentedItem(source, line, response)) 
+
   /** Cancels current compiler run and start a fresh one where everything will be re-typechecked
    *  (but not re-loaded).
    */
@@ -210,12 +227,12 @@ trait CompilerControl { self: Global =>
 
   /** Tells the compile server to shutdown, and not to restart again */
   def askShutdown() = scheduler raise ShutdownReq
-  
-  @deprecated("use parseTree(source) instead") // deleted 2nd parameter, as thius has to run on 2.8 also.
+
+  @deprecated("use parseTree(source) instead") // deleted 2nd parameter, as this has to run on 2.8 also.
   def askParse(source: SourceFile, response: Response[Tree]) = respond(response) {
     parseTree(source)
   }
-  
+
   /** Returns parse tree for source `source`. No symbols are entered. Syntax errors are reported.
    *  Can be called asynchronously from presentation compiler.
    */
@@ -227,10 +244,10 @@ trait CompilerControl { self: Global =>
         new UnitParser(new CompilationUnit(source)).parse()
     }
   }
-    
+
   /** Asks for a computation to be done quickly on the presentation compiler thread */
   def ask[A](op: () => A): A = if (self.onCompilerThread) op() else scheduler doQuickly op
-  
+
   def onCompilerThread = Thread.currentThread == compileRunner
 
   /** Info given for every member found by completion
@@ -256,62 +273,106 @@ trait CompilerControl { self: Global =>
     tpe: Type, 
     accessible: Boolean, 
     viaImport: Tree) extends Member
-  
+
   // items that get sent to scheduler
-  
+
   abstract class WorkItem extends (() => Unit) {
     val onCompilerThread = self.onCompilerThread
+    
+    /** Raise a MissingReponse, if the work item carries a response. */
+    def raiseMissing(): Unit
   }
 
   case class ReloadItem(sources: List[SourceFile], response: Response[Unit]) extends WorkItem {
     def apply() = reload(sources, response)
     override def toString = "reload "+sources
+    
+    def raiseMissing() =
+      response raise new MissingResponse
   }
 
   case class FilesDeletedItem(sources: List[SourceFile], response: Response[Unit]) extends WorkItem {
     def apply() = filesDeleted(sources, response)
     override def toString = "files deleted "+sources
+
+    def raiseMissing() =
+      response raise new MissingResponse
   }
 
-  class AskTypeAtItem(val pos: Position, response: Response[Tree]) extends WorkItem {
+  case class AskTypeAtItem(val pos: Position, response: Response[Tree]) extends WorkItem {
     def apply() = self.getTypedTreeAt(pos, response)
     override def toString = "typeat "+pos.source+" "+pos.show
+  
+    def raiseMissing() =
+      response raise new MissingResponse
   }
 
-  class AskTypeItem(val source: SourceFile, val forceReload: Boolean, response: Response[Tree]) extends WorkItem {
+  case class AskTypeItem(val source: SourceFile, val forceReload: Boolean, response: Response[Tree]) extends WorkItem {
     def apply() = self.getTypedTree(source, forceReload, response)
     override def toString = "typecheck"
+    
+    def raiseMissing() =
+      response raise new MissingResponse
   }
 
-  class AskTypeCompletionItem(val pos: Position, response: Response[List[Member]]) extends WorkItem {
+  case class AskTypeCompletionItem(val pos: Position, response: Response[List[Member]]) extends WorkItem {
     def apply() = self.getTypeCompletion(pos, response)
     override def toString = "type completion "+pos.source+" "+pos.show
+    
+    def raiseMissing() =
+      response raise new MissingResponse
   }
 
-  class AskScopeCompletionItem(val pos: Position, response: Response[List[Member]]) extends WorkItem {
+  case class AskScopeCompletionItem(val pos: Position, response: Response[List[Member]]) extends WorkItem {
     def apply() = self.getScopeCompletion(pos, response)
     override def toString = "scope completion "+pos.source+" "+pos.show
-  }
 
-  class AskToDoFirstItem(val source: SourceFile) extends WorkItem {
-    def apply() = moveToFront(List(source))
-    override def toString = "dofirst "+source
-  }
-
-  class AskLinkPosItem(val sym: Symbol, val source: SourceFile, response: Response[Position]) extends WorkItem {
-    def apply() = self.getLinkPos(sym, source, response)
-    override def toString = "linkpos "+sym+" in "+source
-  }
-
-  class AskLoadedTypedItem(val source: SourceFile, response: Response[Tree]) extends WorkItem {
-    def apply() = self.waitLoadedTyped(source, response, this.onCompilerThread)
-    override def toString = "wait loaded & typed "+source
+    def raiseMissing() =
+      response raise new MissingResponse
   }
   
-  class AskParsedEnteredItem(val source: SourceFile, val keepLoaded: Boolean, response: Response[Tree]) extends WorkItem {
+  class AskToDoFirstItem(val source: SourceFile) extends WorkItem {
+    def apply() = {
+      moveToFront(List(source))
+      enableIgnoredFile(source.file)
+    }
+    override def toString = "dofirst "+source
+
+    def raiseMissing() = ()
+  }
+
+  case class AskLinkPosItem(val sym: Symbol, val source: SourceFile, response: Response[Position]) extends WorkItem {
+    def apply() = self.getLinkPos(sym, source, response)
+    override def toString = "linkpos "+sym+" in "+source
+  
+    def raiseMissing() =
+      response raise new MissingResponse
+  }
+
+  case class AskLoadedTypedItem(val source: SourceFile, response: Response[Tree]) extends WorkItem {
+    def apply() = self.waitLoadedTyped(source, response, this.onCompilerThread)
+    override def toString = "wait loaded & typed "+source
+  
+    def raiseMissing() =
+      response raise new MissingResponse
+  }
+
+  case class AskParsedEnteredItem(val source: SourceFile, val keepLoaded: Boolean, response: Response[Tree]) extends WorkItem {
     def apply() = self.getParsedEntered(source, keepLoaded, response, this.onCompilerThread)
     override def toString = "getParsedEntered "+source+", keepLoaded = "+keepLoaded
+
+    def raiseMissing() =
+      response raise new MissingResponse
   }
+
+  case class AskInstrumentedItem(val source: SourceFile, line: Int, response: Response[(String, Array[Char])]) extends WorkItem {
+    def apply() = self.getInstrumented(source, line, response)
+    override def toString = "getInstrumented "+source
+
+    def raiseMissing() =
+      response raise new MissingResponse
+  }
+  
 }
 
   // ---------------- Interpreted exceptions -------------------

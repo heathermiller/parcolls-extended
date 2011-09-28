@@ -64,6 +64,9 @@ final class ListBuffer[A]
    */
   override def length = len
   
+  // Don't use the inherited size, which forwards to a List and is O(n).
+  override def size = length
+  
   // Implementations of abstract methods in Buffer
 
   override def apply(n: Int): A =
@@ -245,9 +248,14 @@ final class ListBuffer[A]
    *
    *  @param xs   the list to which elements are prepended
    */
-  def prependToList(xs: List[A]): List[A] =
+  def prependToList(xs: List[A]): List[A] = {
     if (start.isEmpty) xs
-    else { last0.tl = xs; toList }
+    else {
+      if (exported) copy()
+      last0.tl = xs
+      toList
+    }
+  }
 
 // Overrides of methods in Buffer
 
@@ -358,7 +366,7 @@ final class ListBuffer[A]
 
   /** Returns a clone of this buffer.
    *
-   *  @return a <code>ListBuffer</code> with the same elements.
+   *  @return a `ListBuffer` with the same elements.
    */
   override def clone(): ListBuffer[A] = (new ListBuffer[A]) ++= this
 
@@ -374,6 +382,6 @@ final class ListBuffer[A]
  *  @define coll list buffer
  */
 object ListBuffer extends SeqFactory[ListBuffer] {
-  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, ListBuffer[A]] = new GenericCanBuildFrom[A]
+  implicit def canBuildFrom[A]: CanBuildFrom[Coll, A, ListBuffer[A]] = ReusableCBF.asInstanceOf[GenericCanBuildFrom[A]]
   def newBuilder[A]: Builder[A, ListBuffer[A]] = new GrowingBuilder(new ListBuffer[A])
 }

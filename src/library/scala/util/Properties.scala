@@ -10,11 +10,16 @@
 package scala.util
 
 import java.io.{ IOException, PrintWriter }
+import java.util.jar.Attributes.{ Name => AttributeName }
 
-/** Loads library.properties from the jar. */
+/** Loads `library.properties` from the jar. */
 object Properties extends PropertiesTrait {
   protected def propCategory    = "library"
   protected def pickJarBasedOn  = classOf[ScalaObject]
+  
+  /** Scala manifest attributes.
+   */
+  val ScalaCompilerVersion = new AttributeName("Scala-Compiler-Version")
 }
 
 private[scala] trait PropertiesTrait {
@@ -59,7 +64,7 @@ private[scala] trait PropertiesTrait {
   def scalaPropOrEmpty(name: String): String             = scalaPropOrElse(name, "")
   def scalaPropOrNone(name: String): Option[String]      = Option(scalaProps.getProperty(name))
 
-  /** The numeric portion of the runtime scala version, if this is a final
+  /** The numeric portion of the runtime Scala version, if this is a final
    *  release.  If for instance the versionString says "version 2.9.0.final",
    *  this would return Some("2.9.0").
    *
@@ -72,7 +77,7 @@ private[scala] trait PropertiesTrait {
     if (segments.size == 4 && segments.last == "final") Some(segments take 3 mkString ".") else None
   }
 
-  /** The development scala version, if this is not a final release.
+  /** The development Scala version, if this is not a final release.
    *  The precise contents are not guaranteed, but it aims to provide a
    *  unique repository identifier (currently the svn revision) in the
    *  fourth dotted segment if the running version was built from source.
@@ -90,6 +95,11 @@ private[scala] trait PropertiesTrait {
       Some(s)
   }
 
+  /** Either the development or release version if known, otherwise
+   *  the empty string.
+   */
+  def versionNumberString = scalaPropOrEmpty("version.number")
+
   /** The version number of the jar this was loaded from plus "version " prefix,
    *  or "version (unknown)" if it cannot be determined.
    */
@@ -103,7 +113,7 @@ private[scala] trait PropertiesTrait {
   def sourceReader          = scalaPropOrElse("source.reader", "scala.tools.nsc.io.SourceReader")
   
   /** This is the default text encoding, overridden (unreliably) with
-   *  JAVA_OPTS="-Dfile.encoding=Foo"
+   *  `JAVA_OPTS="-Dfile.encoding=Foo"`
    */
   def encodingString        = propOrElse("file.encoding", "UTF-8")
   
